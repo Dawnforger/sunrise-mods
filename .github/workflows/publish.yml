@@ -1,0 +1,47 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}index.json
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE: https://github.com/${{ github.repository }}/releases/download/
+      SITE: https://sunrise-org.github.io/sunrise-mods/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/tool
+      - run: mkdir -p mods files site
+      - name: Publish new versions' files as releases
+        run: |
+          cargo-sunrise-mod sunrise-mod registry list . > files.txt
+          python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files --publish
+      - name: Build index.json
+        run: >-
+          cargo-sunrise-mod sunrise-mod registry build . --files files --out site/index.json
+          --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Add the images
+        run: for d in icons screenshots; do [ -d "$d" ] && cp -r "$d" site/; done; true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

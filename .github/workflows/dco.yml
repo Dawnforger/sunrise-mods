@@ -1,0 +1,32 @@
+name: dco
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      # The checker comes from the base commit; the pull request's commits are only read as git objects.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The pull request's commits
+        env:
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$HEAD"
+      - name: Every commit is signed off by its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 -I scripts/dco_check.py "$BASE" "$HEAD"

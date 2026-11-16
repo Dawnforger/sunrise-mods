@@ -1,0 +1,98 @@
+# sunrise-mods
+
+Sunrise's mod registry. Each project has an entry here, and every change to an entry is a pull request that a person reviews.
+After a merge, CI publishes the index that the launcher and [playsunrise.net/mods](https://playsunrise.net/mods) read:
+
+**<https://sunrise-org.github.io/sunrise-mods/index.json>**
+
+The format of the index and the rules for an entry are set in Sunrise's own code and docs:
+[registry-index.md](https://github.com/sunrise-org/sunrise/blob/main/docs/modding/src/reference/registry-index.md)
+and `sunrise_mod_package::index::registry`. CI runs that code (`cargo sunrise-mod registry`) and doesn't
+reimplement it. What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY.md).
+
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| `mods/<id>.toml` | A project's entry: its page, its owners and every version's file, pinned by SHA-256 |
+| `icons/<id>.png` | The project's icon: a square PNG, 64–1024 px, at most 256 KiB |
+| `screenshots/<id>/<name>.png\|.jpg` | Optional: up to 8 images |
+| `revoked.toml` | Files taken down. The launcher refuses to install them and turns installed copies off |
+
+The `mods/` folder holds only `<id>.toml` files.
+
+## Submitting a project
+
+1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it).
+2. Fork this repository and add `mods/<id>.toml` and `icons/<id>.png`. A mod's `id` is the `id` in its
+   `sunrise-mod.toml`.
+3. Open a pull request. In its description, link the exact file you are submitting (a GitHub release asset
+   works) and give its SHA-256. A maintainer copies that file to this repository's `staging` release as
+   `<sha256>.<extension>`, and the `check` workflow then tests it.
+4. A reviewer reads the change and merges it. The `publish` workflow then publishes the file as the release
+   `<id>-<version>` and adds the project to the index.
+
+The submission form at playsunrise.net/mods/submit will open these pull requests for you once its service runs.
+Until then, submit by hand as described above.
+
+```toml
+id = "coords_hud"
+kind = "mod"                  # mod, native-mod, modpack, resourcepack, shader, shaderpack, datapack
+name = "Coordinates HUD"
+summary = "Shows where you are."                          # at most 160 characters
+description = "Markdown for the project's page, 50 to 10,000 characters."
+authors = ["Your Name"]
+owners = ["your-github-login"]  # who may publish updates
+license = "MIT"                 # an SPDX expression: your project's own licence
+source = "https://github.com/you/coords_hud"
+icon = "icons/coords_hud.png"
+categories = ["utility"]        # 1 to 3 from your kind's list
+tags = ["hud"]                  # up to 10, lowercase
+# key = "RWT..."                # optional minisign public key: every version must then carry a signature
+
+[[versions]]                    # newest first
+version = "0.1.0"
+published = "2026-11-16"
+game = "26.3"
+file = "coords_hud-0.1.0.smod"
+sha256 = "<lowercase hex>"
+# signature = """<the .minisig text>"""
+changelog = ""
+```
+
+The tool reads a mod's API, side and capabilities from the file itself, so you don't list them. Unknown keys
+are refused. The category lists are in
+[`index/page.rs`](https://github.com/sunrise-org/sunrise/blob/main/crates/sunrise-mod-package/src/index/page.rs).
+
+**Updates.** To publish an update, add a new `[[versions]]` table at the top of the list. A published file
+never changes and is never removed: to take one down, add it to `revoked.toml`. A project's kind can't change.
+
+**Code mods.** Sunrise doesn't take new entries that follow a repository's releases (`repo = ...`). Every
+version is listed as its own file, as shown above.
+
+## How it works
+
+- **`check`** runs on every pull request. It builds `cargo-sunrise-mod` from the `sunrise-org/sunrise` commit named
+  in `.github/sunrise-rev` (cached per commit), then runs four steps:
+  - `registry review`: compares the pull request with `main`;
+  - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
+  - `registry check`: tests each new file;
+  - `registry build`: builds the whole index the merge would publish.
+- **`publish`** runs on every push to `main`. It creates the `<id>-<version>` release for each file still in
+  `staging`, builds `index.json` and deploys it to GitHub Pages together with `icons/` and `screenshots/`.
+- **`dco`**: every commit carries a `Signed-off-by:` line for its author.
+
+To update the tool, change `.github/sunrise-rev` in a pull request.
+
+The registry doesn't fill in `downloads` or `stars` yet.
+
+## Sign-off
+
+This repository uses the [Developer Certificate of Origin](https://developercertificate.org/). Sign off every
+commit with `git commit -s`. A missing sign-off fails the `dco` check. To fix it, run
+`git rebase --signoff origin/main` and push again.
+
+## Licence
+
+This repository's tooling and docs are under [PolyForm Shield 1.0.0](LICENSE). Each listed project keeps its own
+licence, the one its entry names. Its files belong to their authors.

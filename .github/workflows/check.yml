@@ -1,0 +1,53 @@
+name: check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE: https://github.com/${{ github.repository }}/releases/download/
+      SITE: https://sunrise-org.github.io/sunrise-mods/
+    steps:
+      # The tool's commit and the scripts come from the base; the pull request's files are only read as data.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - uses: ./base/.github/actions/tool
+        with:
+          registry: base
+      - run: mkdir -p base/mods head/mods files
+      - name: Review the change against main
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -o pipefail
+          cargo-sunrise-mod sunrise-mod registry review base head --author "$AUTHOR" | tee review.txt
+          { echo '### Registry review'; echo '```'; cat review.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Download every listed file
+        run: |
+          cargo-sunrise-mod sunrise-mod registry list head > files.txt
+          python3 -I base/scripts/fetch_files.py "${{ github.repository }}" files.txt files
+      - name: Check the new files
+        run: cargo-sunrise-mod sunrise-mod registry check base head --files files
+      - name: Build the index the merge would publish
+        run: >-
+          cargo-sunrise-mod sunrise-mod registry build head --files files --out index.json
+          --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

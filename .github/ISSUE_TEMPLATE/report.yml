@@ -1,0 +1,23 @@
+name: Report a project
+description: A listed project is broken, misleading or breaks the mod policy
+labels: [report]
+body:
+  - type: input
+    id: project
+    attributes:
+      label: Project id
+      description: The id in its URL, playsunrise.net/mods/<id>
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Leave empty if every version is affected
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong
+      description: What you saw, and how to see it again
+    validations:
+      required: true

@@ -1,0 +1,33 @@
+name: Ask for a takedown
+description: A listed project or file should be removed (MOD-POLICY.md, "Takedowns")
+labels: [takedown]
+body:
+  - type: input
+    id: project
+    attributes:
+      label: Project id
+    validations:
+      required: true
+  - type: input
+    id: files
+    attributes:
+      label: Version or SHA-256
+      description: Leave empty to ask for the whole project
+  - type: dropdown
+    id: reason
+    attributes:
+      label: Reason
+      options:
+        - Malware or hidden behaviour
+        - Infringes my rights (copyright, trademark)
+        - Breaks the mod policy in another way
+        - I own it and want it taken down
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Evidence and links. For a rights claim, say which work is yours and where it appears
+    validations:
+      required: true
