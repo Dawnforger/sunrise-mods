@@ -4,8 +4,9 @@ address, and every GitHub source repository's stargazers_count, by `owner/repo`.
 
     python3 -I scripts/fetch_counts.py site/index.json > counts.json
 
-`cargo sunrise-mod registry build --counts counts.json` sums them per project. A repository GitHub doesn't answer
-for counts nothing; the build still publishes.
+`cargo sunrise-mod registry build --counts counts.json` sums them per project. A repository GitHub says is gone
+(404) counts nothing. Any other failed lookup (a rate limit, an outage) fails the script, so the workflow stops
+before it deploys and the last good index stays live instead of one with every count at 0.
 """
 import json
 import re
@@ -19,8 +20,10 @@ SOURCE = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?
 def gh_json(path: str):
     done = subprocess.run(["gh", "api", "--paginate", "--slurp", path], capture_output=True, text=True)
     if done.returncode != 0:
-        print(f"::warning::gh api {path}: {done.stderr.strip()}", file=sys.stderr)
-        return None
+        if "(HTTP 404)" in done.stderr:
+            print(f"::warning::gh api {path}: {done.stderr.strip()}", file=sys.stderr)
+            return None
+        sys.exit(f"::error::gh api {path}: {done.stderr.strip()}")
     return json.loads(done.stdout)
 
 
