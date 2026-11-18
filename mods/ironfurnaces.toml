@@ -25,6 +25,7 @@ owners = ["Joeypc6"]
 license = "Apache-2.0"
 source = "https://github.com/Joeypc6/IronFurnaces-Sunrise"
 icon = "icons/ironfurnaces.png"
+screenshots = ["screenshots/ironfurnaces/1-furnaces.jpg", "screenshots/ironfurnaces/2-screen.jpg", "screenshots/ironfurnaces/3-guide.jpg", "screenshots/ironfurnaces/4-guide-tiers.jpg"]
 categories = ["technology", "utility"]
 tags = ["furnaces", "smelting", "automation", "energy", "generators"]
 
