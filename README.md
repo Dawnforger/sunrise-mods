@@ -78,13 +78,13 @@ version is listed as its own file, as shown above.
   - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
   - `registry check`: tests each new file;
   - `registry build`: builds the whole index the merge would publish.
-- **`publish`** runs on every push to `main`. It creates the `<id>-<version>` release for each file still in
-  `staging`, builds `index.json` and deploys it to GitHub Pages together with `icons/` and `screenshots/`.
+- **`publish`** runs on every push to `main`, and every three hours to refresh the counts. It creates the
+  `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each listed file's
+  release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), builds `index.json`
+  with them and deploys it to GitHub Pages together with `icons/` and `screenshots/`.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.
 
 To update the tool, change `.github/sunrise-rev` in a pull request.
-
-The registry doesn't fill in `downloads` or `stars` yet.
 
 ## Sign-off
 
