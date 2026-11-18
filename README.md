@@ -83,6 +83,8 @@ version is listed as its own file, as shown above.
   release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), builds `index.json`
   with them and deploys it to GitHub Pages together with `icons/` and `screenshots/`. A count GitHub fails to
   answer (other than a repository that is gone) stops the run before it deploys, so the last good index stays live.
+  Both workflows keep the downloaded files in an Actions cache, so our own runs fetch only files they haven't
+  seen and stay out of the download counts.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.
 
 To update the tool, change `.github/sunrise-rev` in a pull request.

@@ -41,10 +41,16 @@ jobs:
           set -o pipefail
           cargo-sunrise-mod sunrise-mod registry review base head --author "$AUTHOR" | tee review.txt
           { echo '### Registry review'; echo '```'; cat review.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - name: Download every listed file
-        run: |
-          cargo-sunrise-mod sunrise-mod registry list head > files.txt
-          python3 -I base/scripts/fetch_files.py "${{ github.repository }}" files.txt files
+      - run: cargo-sunrise-mod sunrise-mod registry list head > files.txt
+      # Files are named by their sha256 and rechecked on download, so a cached copy is never trusted
+      # unchecked. Without the cache, each run would add one to every listed file's download count.
+      - uses: actions/cache@v4
+        with:
+          path: files
+          key: smod-files-${{ hashFiles('files.txt') }}
+          restore-keys: smod-files-
+      - name: Download every listed file not cached
+        run: python3 -I base/scripts/fetch_files.py "${{ github.repository }}" files.txt files
       - name: Check the new files
         run: cargo-sunrise-mod sunrise-mod registry check base head --files files
       - name: Build the index the merge would publish
