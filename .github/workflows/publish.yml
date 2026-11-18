@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Refreshes the index's download and star counts; nothing else changes without a push.
+  schedule:
+    - cron: "23 */3 * * *"
 
 permissions:
   contents: write
@@ -30,14 +33,25 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/tool
       - run: mkdir -p mods files site
+      - run: cargo-sunrise-mod sunrise-mod registry list . > files.txt
+      # As in check: the cache keeps our own runs out of the download counts.
+      - uses: actions/cache@v4
+        with:
+          path: files
+          key: smod-files-${{ hashFiles('files.txt') }}
+          restore-keys: smod-files-
       - name: Publish new versions' files as releases
-        run: |
-          cargo-sunrise-mod sunrise-mod registry list . > files.txt
-          python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files --publish
+        run: python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files --publish
       - name: Build index.json
-        run: >-
-          cargo-sunrise-mod sunrise-mod registry build . --files files --out site/index.json
-          --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        run: |
+          build() {
+            cargo-sunrise-mod sunrise-mod registry build . --files files --out site/index.json \
+              --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$@"
+          }
+          build
+          # GitHub's download and star counts for the files and sources the index lists, then the index with them.
+          python3 -I scripts/fetch_counts.py site/index.json > counts.json
+          build --counts counts.json
       - name: Add the images
         run: for d in icons screenshots; do [ -d "$d" ] && cp -r "$d" site/; done; true
       - uses: actions/upload-pages-artifact@v3

@@ -78,13 +78,16 @@ version is listed as its own file, as shown above.
   - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
   - `registry check`: tests each new file;
   - `registry build`: builds the whole index the merge would publish.
-- **`publish`** runs on every push to `main`. It creates the `<id>-<version>` release for each file still in
-  `staging`, builds `index.json` and deploys it to GitHub Pages together with `icons/` and `screenshots/`.
+- **`publish`** runs on every push to `main`, and every three hours to refresh the counts. It creates the
+  `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each listed file's
+  release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), builds `index.json`
+  with them and deploys it to GitHub Pages together with `icons/` and `screenshots/`. A count GitHub fails to
+  answer (other than a repository that is gone) stops the run before it deploys, so the last good index stays live.
+  Both workflows keep the downloaded files in an Actions cache, so our own runs fetch only files they haven't
+  seen and stay out of the download counts.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.
 
 To update the tool, change `.github/sunrise-rev` in a pull request.
-
-The registry doesn't fill in `downloads` or `stars` yet.
 
 ## Sign-off
 
