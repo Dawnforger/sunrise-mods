@@ -17,7 +17,7 @@ An unofficial port of **Iron Furnaces** (by Qelifern, XenoMustache and Astryxion
 ## Optional
 
 - **JEI:** the generator categories (fuels, foods, blasting) and the furnaces as catalysts.
-- **GuideME:** the W guide.
+- **GuideME:** the W guide: 41 short pages in English, Spanish and German, with 3D scenes and recipes, and every item opens its own page with W.
 - **Applied Energistics 2** and **Machine Work:** AE2's crafting time estimate reads each furnace's real time per craft (tier, augments, factory rows).
 """
 authors = ["Qelifern", "XenoMustache", "Astryxion", "Joeypc6"]
@@ -29,13 +29,14 @@ categories = ["technology", "utility"]
 tags = ["furnaces", "smelting", "automation", "energy", "generators"]
 
 [[versions]]
-version = "4.4.5"
+version = "4.4.6"
 published = "2026-11-18"
 game = "26.3"
-file = "ironfurnaces-4.4.5.smod"
-sha256 = "966050edcffe433adc14097f683a33442cdfe2786dfa703c285d426138be60a5"
+file = "ironfurnaces-4.4.6.smod"
+sha256 = "51bf895ab9534e071ca4a8224f4a003f3995bf3fa8788c1ec7a51050ecce7c1a"
 changelog = """
 - First release for Sunrise, moved from the Horizon port: every furnace tier, augments, factories, generators, the transmitter, the linker and upgrades.
 - Automation through Sunrise's item and energy capabilities.
 - With AE2 and Machine Work: the furnaces' real craft times in AE2's crafting estimate.
+- The W guide: 41 short pages in English, Spanish and German, with 3D scenes and recipes; every item opens its own page.
 """
