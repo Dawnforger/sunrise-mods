@@ -35,7 +35,7 @@ owners = ["Joeypc6"]
 license = "MIT"
 source = "https://github.com/Joeypc6/JEI-Sunrise"
 icon = "icons/jei.png"
-screenshots = ["screenshots/jei/1-crafting.jpg", "screenshots/jei/2-worldgen.jpg", "screenshots/jei/3-loot.jpg", "screenshots/jei/4-blockdrops.jpg", "screenshots/jei/5-mobs.jpg"]
+screenshots = ["screenshots/jei/1-crafting.jpg", "screenshots/jei/2-worldgen.jpg", "screenshots/jei/3-loot.jpg", "screenshots/jei/4-blockdrops.jpg", "screenshots/jei/5-mobs.jpg", "screenshots/jei/6-tinkers-casting.jpg", "screenshots/jei/7-search.jpg", "screenshots/jei/8-uses.jpg"]
 categories = ["utility", "library"]
 tags = ["recipes", "items", "search", "jei", "loot", "worldgen"]
 
