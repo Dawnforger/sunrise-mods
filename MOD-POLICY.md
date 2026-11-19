@@ -8,7 +8,8 @@ says who answers for them and when one is taken down.
 ## Who answers for a project
 
 A project belongs to its authors, and its entry's `owners` answer for it. Each project is under the licence its
-entry names. Sunrise reviews each entry before listing it, but listing is not an endorsement, and the review is
+entry names, and the registry accepts non-commercial licences (such as CC-BY-NC-SA-4.0), because listing and
+installing are free. Sunrise reviews each entry before listing it, but listing is not an endorsement, and the review is
 no guarantee.
 
 ## What an author promises
@@ -18,7 +19,9 @@ When you submit a project, you promise that:
 - you have the right to publish everything in it, under the licence you name;
 - it does what its page says, and nothing hidden: no malware, no collecting or sending players' data they
   weren't told about, no ads or payments built into the game;
-- it contains no Minecraft game files or assets, and nothing that breaks the
+- it contains no Minecraft game files or assets, and no tables or values generated from them: a mod reads such
+  values from the game at runtime through the mod API;
+- it contains nothing that breaks the
   [Minecraft EULA](https://www.minecraft.net/eula) or [Usage Guidelines](https://www.minecraft.net/usage-guidelines);
 - it contains nothing illegal, hateful or sexual;
 - you will keep the entry accurate, and sign every version if you set a key.
