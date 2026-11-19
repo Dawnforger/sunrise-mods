@@ -30,6 +30,17 @@ categories = ["technology", "utility"]
 tags = ["furnaces", "smelting", "automation", "energy", "generators"]
 
 [[versions]]
+version = "4.4.7"
+published = "2026-11-19"
+game = "26.3"
+file = "ironfurnaces-4.4.7.smod"
+sha256 = "e41e64c688e481385e1adbbf42d3b7ac0f3fb7d51ff46848f3fe60783d658b8e"
+changelog = """
+- Pinned to the Nightly of 2026-11-19 (`ed3ac19`).
+- The furnaces' loot tables are in 26.3's form, so their drop conditions apply on this Nightly.
+"""
+
+[[versions]]
 version = "4.4.6"
 published = "2026-11-18"
 game = "26.3"
