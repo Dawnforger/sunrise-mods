@@ -5,10 +5,8 @@ summary = "Spirits of living lightning born in thunderstorms: they shock whoever
 description = """
 > **Beta.** Played and tested in single player; multiplayer and balance come later. Reports are welcome on the [issues](https://github.com/EAnathos/sunrise-creatures/issues).
 
-![](https://raw.githubusercontent.com/EAnathos/sunrise-creatures/storm_spirits-0.1.0/docs/models/storm_spirits-storm_spirit-front.png)
-
 A mod of the [Sunrise Creatures](https://github.com/EAnathos/sunrise-creatures/blob/storm_spirits-0.1.0/README.md) series: spirits of living lightning, born in storms. **Requires**
-Sunrise Creatures, the series' library.
+[Sunrise Creatures](https://playsunrise.net/mods/creature), the series' library.
 
 ## Finding them
 
@@ -36,6 +34,7 @@ source = "https://github.com/EAnathos/sunrise-creatures"
 icon = "icons/storm_spirits.png"
 categories = ["mobs", "magic"]
 tags = ["storm", "lightning", "spirit", "neutral"]
+screenshots = ["screenshots/storm_spirits/1-storm_spirits-storm_spirit-front.png", "screenshots/storm_spirits/2-storm_spirits-storm_spirit-back.png"]
 key = "RWR7Wf0HwHmw6+OGAJGXZcp5ccpovW1ONwQb7knb3YqMpWGTi+gpP0Jn"
 
 [[versions]]
