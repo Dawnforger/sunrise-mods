@@ -15,11 +15,12 @@ reimplement it. What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY
 | Path | What it is |
 | --- | --- |
 | `mods/<id>.toml` | A project's entry: its page, its owners and every version's file, pinned by SHA-256 |
-| `icons/<id>.png` | The project's icon: a square PNG, 64–1024 px, at most 256 KiB |
+| `icons/<id>.png` | The project's icon, or a collection's: a square PNG, 64–1024 px, at most 256 KiB |
+| `collections/<id>.toml` | A collection: a named list of mods already listed here, shown as one card |
 | `screenshots/<id>/<name>.png\|.jpg` | Optional: up to 8 images |
 | `revoked.toml` | Files taken down. The launcher refuses to install them and turns installed copies off |
 
-The `mods/` folder holds only `<id>.toml` files.
+The `mods/` and `collections/` folders hold only `<id>.toml` files.
 
 ## Submitting a project
 
@@ -60,7 +61,8 @@ sha256 = "<lowercase hex>"
 changelog = ""
 ```
 
-The tool reads a mod's API, side and capabilities from the file itself, so you don't list them. Unknown keys
+The tool reads a mod's API, side, capabilities and dependencies from the file itself, so you don't list them. A mod
+that requires another mod can be listed only once that mod is. Unknown keys
 are refused. The category lists are in
 [`index/page.rs`](https://github.com/sunrise-org/sunrise/blob/main/crates/sunrise-mod-package/src/index/page.rs).
 
@@ -70,13 +72,46 @@ never changes and is never removed: to take one down, add it to `revoked.toml`. 
 **Code mods.** Sunrise doesn't take new entries that follow a repository's releases (`repo = ...`). Every
 version is listed as its own file, as shown above.
 
+## Collections
+
+A collection groups mods that are already listed, such as a library and the mods built on it, into one card a
+player can install together. It is not a package: it has no file and no versions, and each member keeps its own
+entry, page and updates.
+
+To add one, open a pull request with `collections/<id>.toml` and `icons/<id>.png`:
+
+```toml
+id = "my_family"                # not the id of any project
+name = "My Family"              # may be the same as a project's name
+summary = "One line about the set."                       # at most 160 characters
+description = "Optional Markdown for the collection's page."
+owners = ["your-github-login"]  # who may change the collection
+icon = "icons/my_family.png"
+members = [
+  { id = "my_library" },
+  { id = "my_first_mod" },
+  { id = "my_extra_mod", default = false },   # listed, but not ticked until the player ticks it
+]
+```
+
+- Every member is a `mod` or `native-mod` listed in `mods/`. A collection has at least two members, and at least
+  one that is installed by default. A member is installed by default unless it says `default = false`.
+- A member's required dependencies are installed with it whether or not they are members.
+- A project cannot be removed from `mods/` while a collection lists it.
+
+**Adding a mod to your collection.** List the mod first, as any project. Then open a pull request that adds its id
+to `members`. When you are an owner of the collection and of the mod, and the pull request changes nothing else,
+the review marks it routine. A new collection, a change to its name, summary, description, icon, owners, member
+order or defaults, and a member you do not own all wait for a reviewer.
+
 ## How it works
 
 - **`check`** runs on every pull request. It builds `cargo-sunrise-mod` from the `sunrise-org/sunrise` commit named
   in `.github/sunrise-rev` (cached per commit), then runs four steps:
-  - `registry review`: compares the pull request with `main`;
   - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
-  - `registry check`: tests each new file;
+  - `registry review`: compares the pull request with `main`, and says which mods a takedown would leave without
+    a dependency;
+  - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
   - `registry build`: builds the whole index the merge would publish.
 - **`publish`** runs on every push to `main`, and every three hours to refresh the counts. It creates the
   `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each listed file's
