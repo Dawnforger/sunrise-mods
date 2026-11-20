@@ -40,6 +40,19 @@ categories = ["utility", "library"]
 tags = ["recipes", "items", "search", "jei", "loot", "worldgen"]
 
 [[versions]]
+version = "0.5.1"
+published = "2026-11-19"
+game = "26.3"
+file = "jei-0.5.1.smod"
+sha256 = "99357acbc57f48f319bea6ec8e323c4bf6534cdcb8740e2072d9aa67d8c6a331"
+changelog = """
+- Every mod's recipes show: JEI asks the server for every recipe type, so native mods' crafting and machine recipes reach the client.
+- Scroll over a slot that holds several items to step through them; matching slots in a recipe step together.
+- `/jei show` waits for the recipe index and says when nothing makes the item; new `/jei why <item>`.
+- A launcher icon. Pinned to the Nightly of 2026-11-19 (`ed3ac19`).
+"""
+
+[[versions]]
 version = "0.5.0"
 published = "2026-11-17"
 game = "26.3"
