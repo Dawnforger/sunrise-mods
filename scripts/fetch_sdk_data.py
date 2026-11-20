@@ -48,7 +48,7 @@ def unpack(archive: Path, target: Path) -> None:
         raise ValueError(f"missing build data: {', '.join(sorted(missing))}")
 
 
-def fetch(sha: str, into: Path, package_format: int) -> None:
+def fetch(sha: str, into: Path) -> None:
     tag = f"sdk-{sha}"
     with tempfile.TemporaryDirectory(dir=into) as folder:
         root = Path(folder)
@@ -60,8 +60,6 @@ def fetch(sha: str, into: Path, package_format: int) -> None:
         index = json.loads((ready / "sdk.json").read_text())
         if type(index["schema"]) is not int or index["schema"] != 1:
             raise ValueError("unknown sdk.json schema")
-        if type(index["package_format"]) is not int or index["package_format"] != package_format:
-            raise ValueError(f"sdk.json is not package format {package_format}")
         if index["build"]["commit"] != sha:
             raise ValueError("sdk.json names a different build")
         assets = {}
@@ -90,7 +88,7 @@ def fetch(sha: str, into: Path, package_format: int) -> None:
         ready.rename(into / sha)
 
 
-def main(inputs: Path, into: Path, package_format: int) -> None:
+def main(inputs: Path, into: Path) -> None:
     releases = json.loads((inputs / "releases.json").read_text())
     nightly = json.loads((inputs / "nightly-build.json").read_text())
     commits = {row["commit"] for row in [*releases, nightly]}
@@ -104,15 +102,15 @@ def main(inputs: Path, into: Path, package_format: int) -> None:
     for sha in sorted(commits):
         if not (into / sha).is_dir():
             try:
-                fetch(sha, into, package_format)
+                fetch(sha, into)
             except (subprocess.CalledProcessError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as error:
                 sys.exit(f"sdk-{sha}: {error}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        sys.exit("usage: fetch_sdk_data.py <input-dir> <sdk-data-dir> <package-format-file>")
+    if len(sys.argv) != 3:
+        sys.exit("usage: fetch_sdk_data.py <input-dir> <sdk-data-dir>")
     try:
-        main(Path(sys.argv[1]), Path(sys.argv[2]), int(Path(sys.argv[3]).read_text()))
+        main(Path(sys.argv[1]), Path(sys.argv[2]))
     except (OSError, ValueError, KeyError, TypeError) as error:
         sys.exit(f"could not read SDK inputs: {error}")
