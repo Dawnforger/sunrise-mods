@@ -22,7 +22,7 @@ An unofficial, alpha port to Sunrise of [Occultism](https://github.com/klikli-de
 
 **Not in yet:** possessed mobs, wild hordes, familiars, the djinni's and higher spirits' jobs, and Occultism's guide book.
 
-This is a native mod: the launcher builds it after asking you to trust its code, and it runs with your account's permissions. It contains no Minecraft code or assets. Pinned to game 26.3, Sunrise Nightly 2026-11-19 (`520fc48`) and mixins `e59da90`. The same source also builds the port for Horizon; the full corresponding source is the linked repository.
+This is a native mod: the launcher builds it after asking you to trust its code, and it runs with your account's permissions. It contains no Minecraft code or assets. Pinned to game 26.3, Sunrise Nightly 2026-11-20 (`9425651`) and mixins `e59da90`. The same source also builds the port for Horizon; the full corresponding source is the linked repository.
 """
 authors = ["KliKli", "Dawnforger"]
 owners = ["Dawnforger"]
@@ -33,9 +33,9 @@ categories = ["magic", "storage"]
 tags = ["occultism", "rituals", "spirits", "chalk", "storage", "port", "alpha"]
 
 [[versions]]
-version = "0.9.0-alpha.1"
-published = "2026-11-19"
+version = "0.9.0-alpha.2"
+published = "2026-11-20"
 game = "26.3"
-file = "occultism-0.9.0-alpha.1.smod"
-sha256 = "c7e93a537c054db348d30a519d0cd4af4eb0fda883a44937754c959a9b18224c"
-changelog = "First release on Sunrise: 0.9.0-alpha.1's features (the working foliots and soul gems among them), with all of Occultism's notices in the package."
+file = "occultism-0.9.0-alpha.2.smod"
+sha256 = "b1a7c5cef66343b670b4da6b485a16ccb81b633d3545cd9570ef04dfdce15011"
+changelog = "First release on Sunrise: the working foliots (janitor, transporter, lumberjack, farmer), soul gems, rituals and dimensional storage, with all of Occultism's notices in the package. Packed with the Nightly 2026-11-20 tool."
