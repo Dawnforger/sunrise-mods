@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  # Refreshes the index's download and star counts; nothing else changes without a push.
+  # Refreshes the release and Nightly metadata, and the index's download and star counts.
   schedule:
     - cron: "23 */3 * * *"
 
@@ -32,6 +32,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/tool
+      - uses: ./.github/actions/registry-data
+        with:
+          checkout: .
+          warn: 'true'
       - run: mkdir -p mods files site
       - run: cargo-sunrise-mod sunrise-mod registry list . > files.txt
       # As in check: the cache keeps our own runs out of the download counts.
@@ -46,7 +50,9 @@ jobs:
         run: |
           build() {
             cargo-sunrise-mod sunrise-mod registry build . --files files --out site/index.json \
-              --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$@"
+              --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --releases registry-data/releases.json --sdk-data registry-data/sdk-data \
+              --nightly-build registry-data/nightly-build.json --nightly registry-data/nightly.json "$@"
           }
           build
           # GitHub's download and star counts for the files and sources the index lists, then the index with them.

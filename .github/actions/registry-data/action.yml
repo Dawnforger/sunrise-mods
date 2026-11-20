@@ -1,0 +1,38 @@
+name: Registry inputs
+description: Fetch Sunrise's release and SDK data, and GitHub metadata for each Nightly source
+inputs:
+  checkout:
+    description: The registry checkout to read as data
+    required: true
+  warn:
+    description: Leave unavailable Nightly sources out of the metadata instead of failing
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - id: releases
+      shell: bash
+      run: |
+        python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_releases.py" registry-data
+        echo "sdk-format=$(< "$HOME/.sunrise-tool/sdk-package-format")" >> "$GITHUB_OUTPUT"
+    # Every commit has its own verified directory. The prefix keeps SDKs common to the last run
+    # when a release or new Nightly changes the set of commits.
+    - uses: actions/cache@v4
+      with:
+        path: registry-data/sdk-data
+        key: registry-sdk-${{ steps.releases.outputs.sdk-format }}-${{ hashFiles('registry-data/sdk-commits.txt') }}
+        restore-keys: registry-sdk-${{ steps.releases.outputs.sdk-format }}-
+    - name: Fetch the signed SDK files
+      shell: bash
+      run: >-
+        python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_sdk_data.py"
+        registry-data registry-data/sdk-data "$HOME/.sunrise-tool/sdk-package-format"
+    - name: Read Nightly source metadata
+      shell: bash
+      env:
+        CHECKOUT: ${{ inputs.checkout }}
+        WARN: ${{ inputs.warn }}
+      run: |
+        args=()
+        if [ "$WARN" = true ]; then args+=(--warn); fi
+        python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_nightly.py" "$CHECKOUT" registry-data/nightly.json "${args[@]}"

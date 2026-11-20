@@ -107,18 +107,28 @@ order or defaults, and a member you do not own all wait for a reviewer.
 
 ## How it works
 
-- **`check`** runs on every pull request. It builds `cargo-sunrise-mod` from the `sunrise-org/sunrise` commit named
-  in `.github/sunrise-rev` (cached per commit), then runs four steps:
+Both workflows build `cargo-sunrise-mod` and the release verifier from the `sunrise-org/sunrise` commit named
+in `.github/sunrise-rev` and cache the tools per commit. They look up the stable release tags and the current
+Nightly's build, then download and verify the small SDK files needed to judge which builds each mod fits.
+They cache those files per build.
+For Nightly sources they read the public repository's default branch, head commit and mod manifest through
+the GitHub API. They never clone or run that source.
+
+- **`check`** runs on every pull request. It uses the tool pin and scripts from the base checkout and reads
+  the proposed entries only as data. An unavailable Nightly source or a manifest with the wrong id fails the
+  check. The remaining steps are:
   - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
   - `registry review`: compares the pull request with `main`, and says which mods a takedown would leave without
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
   - `registry build`: builds the whole index the merge would publish.
-- **`publish`** runs on every push to `main`, and every three hours to refresh the counts. It creates the
-  `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each listed file's
-  release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), builds `index.json`
-  with them and deploys it to GitHub Pages together with `icons/` and `screenshots/`. A count GitHub fails to
-  answer (other than a repository that is gone) stops the run before it deploys, so the last good index stays live.
+- **`publish`** runs on every push to `main`, and every three hours to refresh the release and Nightly
+  metadata and counts. It warns about unavailable Nightly sources and leaves them out of the fetched metadata.
+  It creates the `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each
+  listed file's release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), and
+  builds `index.json` with them. It deploys the index to GitHub Pages together with `icons/` and `screenshots/`.
+  A count GitHub fails to answer (other than a repository that is gone) stops the run before it deploys, so
+  the last good index stays live.
   Both workflows keep the downloaded files in an Actions cache, so our own runs fetch only files they haven't
   seen and stay out of the download counts.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.

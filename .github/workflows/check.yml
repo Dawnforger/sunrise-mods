@@ -33,6 +33,12 @@ jobs:
       - uses: ./base/.github/actions/tool
         with:
           registry: base
+      # A PR introducing these inputs still uses the older tool and scripts from main.
+      - id: data
+        if: hashFiles('base/.github/actions/registry-data/action.yml') != ''
+        uses: ./base/.github/actions/registry-data
+        with:
+          checkout: head
       - run: mkdir -p base/mods head/mods files
       - run: cargo-sunrise-mod sunrise-mod registry list head > files.txt
       # Files are named by their sha256 and rechecked on download, so a cached copy is never trusted
@@ -51,11 +57,15 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -o pipefail
-          cargo-sunrise-mod sunrise-mod registry review base head --author "$AUTHOR" --files files | tee review.txt
+          cargo-sunrise-mod sunrise-mod registry review base head --author "$AUTHOR" --files files \
+            ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json' || '' }} | tee review.txt
           { echo '### Registry review'; echo '```'; cat review.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Check the new files
-        run: cargo-sunrise-mod sunrise-mod registry check base head --files files
+        run: >-
+          cargo-sunrise-mod sunrise-mod registry check base head --files files
+          ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json' || '' }}
       - name: Build the index the merge would publish
         run: >-
           cargo-sunrise-mod sunrise-mod registry build head --files files --out index.json
           --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json --sdk-data registry-data/sdk-data --nightly-build registry-data/nightly-build.json --nightly registry-data/nightly.json' || '' }}

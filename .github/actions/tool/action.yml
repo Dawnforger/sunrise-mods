@@ -1,5 +1,5 @@
 name: cargo-sunrise-mod
-description: Sunrise's registry tool, built from the sunrise-org/sunrise commit in .github/sunrise-rev
+description: Sunrise's registry tool and release verifier, built from the sunrise-org/sunrise commit in .github/sunrise-rev
 inputs:
   registry:
     description: The checkout whose .github/sunrise-rev names the commit
@@ -17,7 +17,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.sunrise-tool
-        key: cargo-sunrise-mod-${{ runner.os }}-${{ steps.rev.outputs.rev }}
+        key: sunrise-registry-tools-${{ runner.os }}-${{ steps.rev.outputs.rev }}
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/checkout@v4
       with:
@@ -28,6 +28,9 @@ runs:
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: .sunrise
-      run: cargo install --locked --path crates/cargo-sunrise-mod --root ~/.sunrise-tool
+      run: |
+        cargo install --locked --path crates/cargo-sunrise-mod --root ~/.sunrise-tool
+        cargo install --locked --path crates/sunrise-release-sign --root ~/.sunrise-tool
+        cp crates/sunrise-mod-package/src/sdk/package-format "$HOME/.sunrise-tool/sdk-package-format"
     - shell: bash
       run: echo "$HOME/.sunrise-tool/bin" >> "$GITHUB_PATH"
