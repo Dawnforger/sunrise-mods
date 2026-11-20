@@ -17,7 +17,7 @@ reimplement it. What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY
 | `mods/<id>.toml` | A project's entry: its page, its owners and every version's file, pinned by SHA-256 |
 | `icons/<id>.png` | The project's icon, or a collection's: a square PNG, 64–1024 px, at most 256 KiB |
 | `collections/<id>.toml` | A collection: a named list of mods already listed here, shown as one card |
-| `screenshots/<id>/<name>.png\|.jpg` | Optional: up to 8 images |
+| `screenshots/<id>/<name>.png\|.jpg` | 1–8 images of the project in game. A new project needs at least one, and so does a listed project whose pull request adds a version. Collections need none; a mod in the `library` category needs none |
 | `revoked.toml` | Files taken down. The launcher refuses to install them and turns installed copies off |
 
 The `mods/` and `collections/` folders hold only `<id>.toml` files.
@@ -25,8 +25,8 @@ The `mods/` and `collections/` folders hold only `<id>.toml` files.
 ## Submitting a project
 
 1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it).
-2. Fork this repository and add `mods/<id>.toml` and `icons/<id>.png`. A mod's `id` is the `id` in its
-   `sunrise-mod.toml`.
+2. Fork this repository and add `mods/<id>.toml`, `icons/<id>.png` and at least one screenshot in
+   `screenshots/<id>/`, listed in the entry's `screenshots`. A mod's `id` is the `id` in its `sunrise-mod.toml`.
 3. Open a pull request. In its description, link the exact file you are submitting (a GitHub release asset
    works) and give its SHA-256. A maintainer copies that file to this repository's `staging` release as
    `<sha256>.<extension>`, and the `check` workflow then tests it.
@@ -47,6 +47,7 @@ owners = ["your-github-login"]  # who may publish updates
 license = "MIT"                 # an SPDX expression: your project's own licence
 source = "https://github.com/you/coords_hud"
 icon = "icons/coords_hud.png"
+screenshots = ["screenshots/coords_hud/1-hud.png"]   # 1 to 8
 categories = ["utility"]        # 1 to 3 from your kind's list
 tags = ["hud"]                  # up to 10, lowercase
 # key = "RWT..."                # optional minisign public key: every version must then carry a signature
