@@ -40,6 +40,16 @@ categories = ["utility", "library"]
 tags = ["recipes", "items", "search", "jei", "loot", "worldgen"]
 
 [[versions]]
+version = "0.5.3"
+published = "2026-11-21"
+game = "26.3"
+file = "jei-0.5.3.smod"
+sha256 = "5464323a9b46842f59a4a2f1ba606aa665451db6f9579d77779019b18baa3d3a"
+changelog = """
+- Fixes rejoining a saved world on the Nightly of 2026-11-20: with 0.5.2 the game dropped the connection a few seconds after spawning. JEI no longer asks the server for its recipe types, which this Nightly can't do yet (sunrise-org/sunrise#4060). Until that is fixed, some recipes that native mods define only in their own data may not show.
+"""
+
+[[versions]]
 version = "0.5.2"
 published = "2026-11-21"
 game = "26.3"
