@@ -16,26 +16,41 @@ RELEASE = {"contract": 1, "channel": "nightly", "build": "nightly-2026-11-20-942
 SDK = {"schema": 1, "build": {"commit": COMMIT, "date": "2026-11-19"}}
 
 
-def runner(release, sdk, missing=False):
+def runner(release, sdk, missing=False, title="Nightly 2026-11-20 · 9425651"):
     """subprocess.run for the Nightly lookup, its download and its signature check."""
     def run(command, **_):
         if command[:2] == ["gh", "api"]:
-            return mock.Mock(returncode=int(missing), stderr="gh: Not Found (HTTP 404)" if missing else "")
+            return mock.Mock(returncode=int(missing), stderr="gh: Not Found (HTTP 404)" if missing else "",
+                             stdout=json.dumps({"name": title}))
         if command[:3] == ["gh", "release", "download"]:
             folder = Path(command[command.index("-D") + 1])
             (folder / "sunrise-release.json").write_text(json.dumps(release))
             (folder / "sdk.json").write_text(json.dumps(sdk))
         else:
-            # Both files are covered by the signature check.
-            assert [command[i + 1] for i, a in enumerate(command) if a == "--only"] == ["sdk.json", "sunrise-release.json"]
+            # Both files are covered by the signature for the build the release's title names.
+            value = lambda flag: [command[i + 1] for i, a in enumerate(command) if a == flag]
+            assert value("--only") == ["sdk.json", "sunrise-release.json"]
+            assert value("--signature") == ["SHA256SUMS.v2.sig"]
+            if value("--tag") != ["nightly-2026-11-20-9425651"]:
+                raise fetch_releases.subprocess.CalledProcessError(1, command)
         return mock.Mock(returncode=0)
     return run
 
 
 class Nightly(unittest.TestCase):
-    def nightly(self, release=RELEASE, sdk=SDK, missing=False):
-        with mock.patch.object(fetch_releases.subprocess, "run", runner(release, sdk, missing)):
+    def nightly(self, release=RELEASE, sdk=SDK, missing=False, **more):
+        with mock.patch.object(fetch_releases.subprocess, "run", runner(release, sdk, missing, **more)):
             return fetch_releases.nightly()
+
+    def test_an_older_nightlys_files_do_not_pass_as_the_current_one(self):
+        # The title names another build than the files are signed for; then files about another build than it names.
+        with self.assertRaises(fetch_releases.subprocess.CalledProcessError):
+            self.nightly(title="Nightly 2026-11-21 · 1111111")
+        for title in ("Nightly", "Snapshot 2026-11-20 · 9425651", "Nightly 2026-11-20 - 9425651", None):
+            with self.subTest(title=title), self.assertRaises(SystemExit):
+                self.nightly(title=title)
+        with self.assertRaises(SystemExit):
+            self.nightly(RELEASE | {"build": "nightly-2026-11-19-9425651"})
 
     def test_the_date_is_the_signed_releases_not_the_commits(self):
         self.assertEqual(self.nightly(), {"commit": COMMIT, "date": "2026-11-20"})

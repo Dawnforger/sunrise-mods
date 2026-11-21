@@ -37,7 +37,10 @@ The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
 3. Open a pull request.
    - A version for a stable Sunrise release (its row has `sunrise`) names your own release asset as its `file`:
      the `check` workflow downloads it from your repository and tests it. Nothing is staged by hand. Such a
-     version must be signed: the entry needs your project's `key` and the version its `signature`.
+     version must be signed: the entry needs your project's `key` and the version its `signature`. A project
+     that already lists unsigned versions can't add a `key` yet, because every listed version would then need
+     a signature and a published version's row can't be changed: it waits for the registry's migration of the
+     existing entries before it submits its first stable version.
    - For any other version, link the exact file in the description (a GitHub release asset works) and give its
      SHA-256. A maintainer copies that file to this repository's `staging` release as `<sha256>.<extension>`,
      and the `check` workflow then tests it.
@@ -150,8 +153,8 @@ track = { branch = "main" }                     # or { release = true }: the lat
 Both workflows build `cargo-sunrise-mod` and the release verifier from the `sunrise-org/sunrise` commit named
 in `.github/sunrise-rev` and cache the tools per commit. They look up the stable release tags and the current
 Nightly's build, then download and verify the small SDK files needed to judge which builds each mod fits.
-They cache those files per build. The Nightly's commit and date come from its signed `sunrise-release.json`,
-which must name the same commit as its `sdk.json`. Sunrise takes its `nightly` release away for a moment while it
+They cache those files per build. The Nightly's commit and date come from its release's title and
+its signed `sunrise-release.json` and `sdk.json`, verified with the signature for exactly that build. Sunrise takes its `nightly` release away for a moment while it
 publishes the next one: `check` then warns and judges a pull request against the stable releases only, and
 `publish` stops before it deploys, so the last good index stays live.
 

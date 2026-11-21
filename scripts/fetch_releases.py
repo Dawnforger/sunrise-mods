@@ -13,7 +13,8 @@ SHA = re.compile(r"[0-9a-f]{40}")
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TIMESTAMP = re.compile(DATE.pattern + r"T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 NUMBER = r"(0|[1-9][0-9]{0,19})"
-NIGHTLY = re.compile(rf"nightly-(?P<date>{DATE.pattern})-(?P<short>[0-9a-f]{{7,40}})")
+# A Nightly release's title, as Sunrise's verifier reads it (sunrise-release-sign: build_title_version).
+TITLE = re.compile(rf"Nightly (?P<date>{DATE.pattern}) · (?P<short>[0-9a-f]{{7,40}})")
 STABLE = re.compile(rf"[0-9]+(?:\.[0-9]+)+-{NUMBER}\.{NUMBER}\.{NUMBER}")
 
 
@@ -38,31 +39,37 @@ def commit_of(tag: str) -> str:
 
 
 def nightly() -> dict | None:
-    """The current Nightly's commit and date from its signed files, or None while the moving `nightly` release is
-    absent: Sunrise renames the old one away before it creates the next."""
+    """The current Nightly's commit and date, or None while the moving `nightly` release is absent: Sunrise renames
+    the old one away before it creates the next. The release's title names the build (`Nightly <date> · <commit>`),
+    and its files are verified with the signature for exactly that build, so an older Nightly's files do not pass
+    as the current one's."""
     found = subprocess.run(["gh", "api", f"repos/{REPO}/releases/tags/nightly"], capture_output=True, text=True)
     if found.returncode:
         if "HTTP 404" in found.stderr:
             return None
         sys.exit(f"nightly: {found.stderr.strip()}")
+    title = json.loads(found.stdout)["name"]
+    named = TITLE.fullmatch(title) if isinstance(title, str) else None
+    if not named:
+        sys.exit("nightly: the release's title does not name its date and commit")
+    build = f"nightly-{named['date']}-{named['short']}"
+    date.fromisoformat(named["date"])
     with tempfile.TemporaryDirectory() as folder:
         subprocess.run(["gh", "release", "download", "nightly", "-R", REPO, "-D", folder, "-p", "sdk.json",
-                        "-p", "sunrise-release.json", "-p", "SHA256SUMS", "-p", "SHA256SUMS.sig"], check=True)
-        subprocess.run(["sunrise-release-sign", "verify", "--repository", REPO, "--tag", "nightly",
-                        "--only", "sdk.json", "--only", "sunrise-release.json", folder], check=True)
+                        "-p", "sunrise-release.json", "-p", "SHA256SUMS", "-p", "SHA256SUMS.v2.sig"], check=True)
+        subprocess.run(["sunrise-release-sign", "verify", "--repository", REPO, "--tag", build,
+                        "--signature", "SHA256SUMS.v2.sig", "--only", "sdk.json", "--only", "sunrise-release.json",
+                        folder], check=True)
         index = json.loads((Path(folder) / "sdk.json").read_text())
         release = json.loads((Path(folder) / "sunrise-release.json").read_text())
-    # The release file names the build `nightly-<date>-<short commit>`: that date is the Nightly's own, where
-    # sdk.json records the commit's. Both files must be about one commit.
-    sha, build = release["commit"], release["build"]
-    name = NIGHTLY.fullmatch(build) if isinstance(build, str) else None
-    if not (release["channel"] == "nightly" and isinstance(sha, str) and SHA.fullmatch(sha)
-            and name and sha.startswith(name["short"])):
-        sys.exit("nightly: sunrise-release.json has no Nightly build name and commit")
+    # Both signed files must be about that build: the release file by its name and commit, sdk.json by its commit.
+    sha = release["commit"]
+    if not (release["channel"] == "nightly" and release["build"] == build
+            and isinstance(sha, str) and SHA.fullmatch(sha) and sha.startswith(named["short"])):
+        sys.exit(f"nightly: sunrise-release.json is not about {build}")
     if type(index["schema"]) is not int or index["schema"] != 1 or index["build"]["commit"] != sha:
         sys.exit("nightly: sdk.json and sunrise-release.json name different builds")
-    date.fromisoformat(name["date"])
-    return {"commit": sha, "date": name["date"]}
+    return {"commit": sha, "date": named["date"]}
 
 
 def main(out: Path, optional: bool) -> None:
