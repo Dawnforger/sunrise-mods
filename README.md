@@ -30,12 +30,20 @@ The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
 
 ## Submitting a project
 
-1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it).
+1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it; a
+   version for a stable Sunrise release must be signed).
 2. Fork this repository and add `mods/<id>.toml`, `icons/<id>.png` and at least one screenshot in
    `screenshots/<id>/`, listed in the entry's `screenshots`. A mod's `id` is the `id` in its `sunrise-mod.toml`.
-3. Open a pull request. In its description, link the exact file you are submitting (a GitHub release asset
-   works) and give its SHA-256. A maintainer copies that file to this repository's `staging` release as
-   `<sha256>.<extension>`, and the `check` workflow then tests it.
+3. Open a pull request.
+   - A version for a stable Sunrise release (its row has `sunrise`) names your own release asset as its `file`:
+     the `check` workflow downloads it from your repository and tests it. Nothing is staged by hand. Such a
+     version must be signed: the entry needs your project's `key` and the version its `signature`. A project
+     that already lists unsigned versions can't add a `key` yet, because every listed version would then need
+     a signature and a published version's row can't be changed: it waits for the registry's migration of the
+     existing entries before it submits its first stable version.
+   - For any other version, link the exact file in the description (a GitHub release asset works) and give its
+     SHA-256. A maintainer copies that file to this repository's `staging` release as `<sha256>.<extension>`,
+     and the `check` workflow then tests it.
 4. A reviewer reads the change and merges it. The `publish` workflow then publishes the file as the release
    `<id>-<version>` and adds the project to the index.
 
@@ -56,7 +64,8 @@ icon = "icons/coords_hud.png"
 screenshots = ["screenshots/coords_hud/1-hud.png"]   # 1 to 8
 categories = ["utility"]        # 1 to 3 from your kind's list
 tags = ["hud"]                  # up to 10, lowercase
-# key = "RWT..."                # optional minisign public key: every version must then carry a signature
+# key = "RWT..."                # minisign public key: every version must then carry a signature. Optional,
+                                # but required once a version names a stable Sunrise release
 
 [[versions]]                    # newest first
 version = "0.1.0"
@@ -141,22 +150,37 @@ track = { branch = "main" }                     # or { release = true }: the lat
 
 ## How it works
 
-- **`check`** runs on every pull request. It builds `cargo-sunrise-mod` from the `sunrise-org/sunrise` commit named
-  in `.github/sunrise-rev` (cached per commit), then runs four steps:
-  - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
+Both workflows build `cargo-sunrise-mod` and the release verifier from the `sunrise-org/sunrise` commit named
+in `.github/sunrise-rev` and cache the tools per commit. They look up the stable release tags and the current
+Nightly's build, then download and verify the small SDK files needed to judge which builds each mod fits.
+They cache those files per build. The Nightly's commit and date come from its release's title and
+its signed `sunrise-release.json` and `sdk.json`, verified with the signature for exactly that build. Sunrise takes its `nightly` release away for a moment while it
+publishes the next one: `check` then warns and judges a pull request against the stable releases only, and
+`publish` stops before it deploys, so the last good index stays live.
+
+- **`check`** runs on every pull request. It uses the tool pin and scripts from the base checkout and reads
+  the proposed entries only as data. Its steps are:
+  - `scripts/fetch_files.py`: downloads every listed file and checks its hash. A version that names a stable
+    Sunrise release lists the author's own release asset, which is fetched from the author's repository until
+    the registry holds its copy; an older version's file comes from `staging`. A stable native build's signed
+    descriptor is fetched the same way, then the archives the verified descriptor names. A download stops at
+    the registry tool's size limit, or at the size the descriptor gives an archive;
   - `registry review`: compares the pull request with `main`, and says which mods a takedown would leave without
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
   - `registry build`: builds the whole index the merge would publish.
-
   Before those, `scripts/build_sources.py check` checks every `sources/` listing and asks GitHub about the new or
   changed ones. A separate job runs the tests of the registry's own scripts.
-- **`publish`** runs on every push to `main`, and every three hours to refresh the counts. It creates the
-  `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each listed file's
-  release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), builds `index.json`
-  with them, writes `sources.json` from `sources/` (`scripts/build_sources.py build`, without asking GitHub), and
-  deploys both to GitHub Pages together with `icons/` and `screenshots/`. A count GitHub fails to
-  answer (other than a repository that is gone) stops the run before it deploys, so the last good index stays live.
+- **`publish`** runs on every push to `main`, and every three hours to refresh the release and Nightly
+  metadata and counts. It downloads the listed files as `check` does and builds the index, which checks them;
+  only then does it create the `<id>-<version>` release for each file still in `staging` or only in its
+  author's release, under the file's own name, with a stable native build's descriptor and archives beside it.
+  It then reads GitHub's
+  download count of each listed file's release asset and the stars of each project's source repository
+  (`scripts/fetch_counts.py`), builds `index.json` again with them, writes `sources.json` from `sources/`
+  (`scripts/build_sources.py build`, without asking GitHub), and deploys both to GitHub Pages together with
+  `icons/` and `screenshots/`. A count GitHub fails to answer (other than a repository that is gone) stops the
+  run before it deploys, so the last good index stays live.
   Both workflows keep the downloaded files in an Actions cache, so our own runs fetch only files they haven't
   seen and stay out of the download counts.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.

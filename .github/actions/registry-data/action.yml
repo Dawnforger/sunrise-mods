@@ -1,0 +1,29 @@
+name: Registry inputs
+description: Fetch Sunrise's stable releases, the current Nightly's build and their signed SDK data
+inputs:
+  nightly-optional:
+    description: Warn and leave the Nightly build out while Sunrise has no `nightly` release, instead of failing
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Find stable releases and the current Nightly
+      shell: bash
+      run: >-
+        python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_releases.py" registry-data
+        ${{ inputs.nightly-optional == 'true' && '--nightly-optional' || '' }}
+    # Every commit has its own verified directory. The prefix keeps SDKs common to the last run
+    # when a release or new Nightly changes the set of commits. The key and the prefix carry the hash of
+    # the release keys the verifier trusts (the tool action sets it), so a change of trust verifies all again.
+    - shell: bash
+      run: '[[ "$SUNRISE_RELEASE_TRUST" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::run the tool action first"; exit 1; }'
+    - uses: actions/cache@v4
+      with:
+        path: registry-data/sdk-data
+        key: registry-sdk-v2-${{ env.SUNRISE_RELEASE_TRUST }}-${{ hashFiles('registry-data/sdk-commits.txt') }}
+        restore-keys: registry-sdk-v2-${{ env.SUNRISE_RELEASE_TRUST }}-
+    - name: Fetch the signed SDK files
+      shell: bash
+      run: >-
+        python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_sdk_data.py"
+        registry-data registry-data/sdk-data
