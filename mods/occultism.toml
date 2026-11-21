@@ -29,6 +29,7 @@ owners = ["Dawnforger"]
 license = "MIT AND CC-BY-3.0"
 source = "https://github.com/Dawnforger/occultism-horizon"
 icon = "icons/occultism.png"
+screenshots = ["screenshots/occultism/1-fatma-circle.jpg", "screenshots/occultism/2-storage-terminal.jpg"]
 categories = ["magic", "storage"]
 tags = ["occultism", "rituals", "spirits", "chalk", "storage", "port", "alpha"]
 
