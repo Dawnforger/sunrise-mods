@@ -30,12 +30,14 @@ The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
 
 ## Submitting a project
 
-1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it).
+1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it; a
+   version for a stable Sunrise release must be signed).
 2. Fork this repository and add `mods/<id>.toml`, `icons/<id>.png` and at least one screenshot in
    `screenshots/<id>/`, listed in the entry's `screenshots`. A mod's `id` is the `id` in its `sunrise-mod.toml`.
 3. Open a pull request.
    - A version for a stable Sunrise release (its row has `sunrise`) names your own release asset as its `file`:
-     the `check` workflow downloads it from your repository and tests it. Nothing is staged by hand.
+     the `check` workflow downloads it from your repository and tests it. Nothing is staged by hand. Such a
+     version must be signed: the entry needs your project's `key` and the version its `signature`.
    - For any other version, link the exact file in the description (a GitHub release asset works) and give its
      SHA-256. A maintainer copies that file to this repository's `staging` release as `<sha256>.<extension>`,
      and the `check` workflow then tests it.
@@ -59,7 +61,8 @@ icon = "icons/coords_hud.png"
 screenshots = ["screenshots/coords_hud/1-hud.png"]   # 1 to 8
 categories = ["utility"]        # 1 to 3 from your kind's list
 tags = ["hud"]                  # up to 10, lowercase
-# key = "RWT..."                # optional minisign public key: every version must then carry a signature
+# key = "RWT..."                # minisign public key: every version must then carry a signature. Optional,
+                                # but required once a version names a stable Sunrise release
 
 [[versions]]                    # newest first
 version = "0.1.0"
@@ -147,7 +150,10 @@ track = { branch = "main" }                     # or { release = true }: the lat
 Both workflows build `cargo-sunrise-mod` and the release verifier from the `sunrise-org/sunrise` commit named
 in `.github/sunrise-rev` and cache the tools per commit. They look up the stable release tags and the current
 Nightly's build, then download and verify the small SDK files needed to judge which builds each mod fits.
-They cache those files per build.
+They cache those files per build. The Nightly's commit and date come from its signed `sunrise-release.json`,
+which must name the same commit as its `sdk.json`. Sunrise takes its `nightly` release away for a moment while it
+publishes the next one: `check` then warns and judges a pull request against the stable releases only, and
+`publish` stops before it deploys, so the last good index stays live.
 
 - **`check`** runs on every pull request. It uses the tool pin and scripts from the base checkout and reads
   the proposed entries only as data. Its steps are:

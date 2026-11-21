@@ -16,7 +16,7 @@ HEX = re.compile(r"[0-9a-f]{64}")
 # One plain name, as the registry tool's `plain_name` reads it: no folder, no hidden file, at most 128 bytes. A stable
 # build's asset carries `+<release>`.
 PLAIN = re.compile(r"(?!\.)[A-Za-z0-9._+-]{1,128}")
-# An author's release asset. The tag may have `/`-separated parts, each a plain name, as the tool accepts.
+# An author's release asset; `parse` holds the tag to the tool's rule.
 ASSET = re.compile(r"https://github\.com/(?P<repo>[A-Za-z0-9-]+/[A-Za-z0-9._-]+)/releases/download/"
                    r"(?P<tag>[^?#\s]+)/(?P<name>[^/?#\s]+)")
 # The registry tool's own limits (sunrise-mod-package: index::MAX_FILE, registry::builds::MAX_DESCRIPTOR): nothing
@@ -95,14 +95,16 @@ def rows(listing: str):
             yield *parts, None, False
 
 
-def parse(digest: str, id_: str, version: str, file: str):
+def parse(digest: str, id_: str, version: str, file: str, build: bool):
     """The registry's release tag, the asset name and the author's (repo, tag) for a listed file, or None."""
     tag = f"{id_}-{version}"
     theirs = ASSET.fullmatch(file)
     name = theirs["name"] if theirs else file
     if not (HEX.fullmatch(digest) and PLAIN.fullmatch(tag) and PLAIN.fullmatch(name) and "." in name):
         return None
-    if theirs and not all(PLAIN.fullmatch(part) for part in theirs["tag"].split("/")):
+    # As the tool reads them: a package's tag is one plain name, a build asset's may have `/`-separated parts.
+    if theirs and not (all(PLAIN.fullmatch(part) for part in theirs["tag"].split("/")) if build
+                       else PLAIN.fullmatch(theirs["tag"])):
         return None
     return tag, name, (theirs["repo"], theirs["tag"]) if theirs else None
 
@@ -110,7 +112,7 @@ def parse(digest: str, id_: str, version: str, file: str):
 def fetch(repo: str, listing: str, files: Path) -> list[str]:
     errors = []
     for digest, id_, version, file, size, build in rows(listing):
-        if not (parsed := parse(digest, id_, version, file)):
+        if not (parsed := parse(digest, id_, version, file, build)):
             errors.append(f"{digest} {id_}-{version} {file}: not a plain sha256, id, version and a file name or "
                           "GitHub release asset")
             continue
@@ -154,8 +156,8 @@ def mirror(repo: str, listing: str, files: Path) -> list[str]:
     the listed file, by GitHub's recorded SHA-256 or, without one, by downloading it."""
     errors = []
     releases: dict[str, dict[str, str | None] | None] = {}
-    for digest, id_, version, file, _, _ in rows(listing):
-        if not (parsed := parse(digest, id_, version, file)):
+    for digest, id_, version, file, _, build in rows(listing):
+        if not (parsed := parse(digest, id_, version, file, build)):
             errors.append(f"{digest} {id_}-{version} {file}: not a plain sha256, id, version and a file name or "
                           "GitHub release asset")
             continue

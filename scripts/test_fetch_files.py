@@ -84,14 +84,22 @@ class FetchFiles(unittest.TestCase):
         self.assertEqual(list(self.files.iterdir()), [])
 
     def test_release_tags_follow_the_tools_rule(self):
+        # A build asset's tag may have `/`-separated plain parts; a package's is one plain name.
         nested = THEIRS.replace("/v0.1.0/", "/mods/example/v0.1.0/")
-        self.assertEqual(self.fetch(f"{DIGEST} example 0.1.0 {nested}\n", {nested: PACKAGE})[0], [])
+        row = {"sha256": DIGEST, "id": "example", "version": "0.1.0", "sunrise": "26.3-0.1.1", "url": nested,
+               "name": "example-0.1.0.smod", "size": None}
+        self.assertEqual(self.fetch(json.dumps([row]), {nested: PACKAGE})[0], [])
         (self.files / DIGEST).unlink()
-        for bad in (THEIRS.replace("/v0.1.0/", "/../v0.1.0/"), THEIRS.replace("/v0.1.0/", "/.hidden/"),
-                    THEIRS.replace("/v0.1.0/", "/a//b/"), "https://example.test/example-0.1.0.smod",
-                    "../example-0.1.0.smod", THEIRS.replace("example-0.1.0.smod", ".smod")):
+        for bad in (nested, THEIRS.replace("/v0.1.0/", "/../v0.1.0/"), THEIRS.replace("/v0.1.0/", "/.hidden/"),
+                    "https://example.test/example-0.1.0.smod", "../example-0.1.0.smod",
+                    THEIRS.replace("example-0.1.0.smod", ".smod")):
             with self.subTest(file=bad):
                 errors, asked = self.fetch(f"{DIGEST} example 0.1.0 {bad}\n", {bad: PACKAGE})
+                self.assertIn("not a plain sha256", errors[0])
+                self.assertEqual(asked, [])
+        for bad in (THEIRS.replace("/v0.1.0/", "/a//b/"), THEIRS.replace("/v0.1.0/", "/a/../b/")):
+            with self.subTest(build=bad):
+                errors, asked = self.fetch(json.dumps([row | {"url": bad}]), {bad: PACKAGE})
                 self.assertIn("not a plain sha256", errors[0])
                 self.assertEqual(asked, [])
 

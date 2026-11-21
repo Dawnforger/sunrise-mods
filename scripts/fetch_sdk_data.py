@@ -90,8 +90,9 @@ def fetch(sha: str, into: Path) -> None:
 
 def main(inputs: Path, into: Path) -> None:
     releases = json.loads((inputs / "releases.json").read_text())
-    nightly = json.loads((inputs / "nightly-build.json").read_text())
-    commits = {row["commit"] for row in [*releases, nightly]}
+    # Absent while Sunrise has no `nightly` release (fetch_releases.py --nightly-optional).
+    nightly = inputs / "nightly-build.json"
+    commits = {row["commit"] for row in [*releases, *([json.loads(nightly.read_text())] if nightly.exists() else [])]}
     if not all(isinstance(sha, str) and SHA.fullmatch(sha) for sha in commits):
         sys.exit("registry inputs contain an invalid build commit")
     into.mkdir(parents=True, exist_ok=True)
