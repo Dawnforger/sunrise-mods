@@ -14,6 +14,7 @@ import sys
 import tomllib
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -178,7 +179,7 @@ def raw_file(repo: str, commit: str, path: str) -> bytes | None:
 def commit_of(api, repo: str, track: dict) -> tuple[str, str]:
     """The full commit the tracker names now, and how to say which tracker it was."""
     if "branch" in track:
-        ref = api(f"repos/{repo}/git/ref/heads/{track['branch']}")
+        ref = api(f"repos/{repo}/git/ref/heads/{urllib.parse.quote(track['branch'])}")
         if ref is None:
             raise Invalid(f"{repo} has no branch {track['branch']!r}")
         said = f"branch {track['branch']}"
@@ -187,7 +188,7 @@ def commit_of(api, repo: str, track: dict) -> tuple[str, str]:
         if release is None:
             raise Invalid(f"{repo} has no published release (drafts and pre-releases don't count)")
         tag = branch_name(release.get("tag_name"), "the latest release's tag")
-        ref = api(f"repos/{repo}/git/ref/tags/{tag}")
+        ref = api(f"repos/{repo}/git/ref/tags/{urllib.parse.quote(tag)}")
         if ref is None:
             raise Invalid(f"{repo}'s latest release names tag {tag!r}, which doesn't exist")
         said = f"release {tag}"
