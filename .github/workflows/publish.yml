@@ -8,10 +8,7 @@ on:
   schedule:
     - cron: "23 */3 * * *"
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: publish
@@ -20,9 +17,8 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}index.json
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE: https://github.com/${{ github.repository }}/releases/download/
@@ -75,5 +71,18 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+
+  # Its own job, as GitHub documents it: it finds the site by listing the run's artifacts, and a listing made
+  # right after the upload, in the job that made it, came back empty.
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}index.json
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
