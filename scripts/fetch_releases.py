@@ -88,7 +88,8 @@ def main(out: Path, optional: bool) -> None:
         print("::warning::Sunrise has no `nightly` release right now: the Nightly build and its fit verdicts are "
               "left out of this run")
     else:
-        sys.exit("Sunrise has no `nightly` release right now: nothing is published without the Nightly build")
+        sys.exit("waiting for Sunrise's `nightly` tag: it is absent while Sunrise publishes the next Nightly. Nothing "
+                 "is deployed and the last good index stays live; the next run publishes once the tag is back")
     (out / "sdk-commits.txt").write_text("".join(f"{sha}\n" for sha in sorted(commits)))
 
 
