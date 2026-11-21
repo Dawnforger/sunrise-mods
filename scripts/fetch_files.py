@@ -63,10 +63,14 @@ def gh(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["gh", *args], capture_output=True, text=True)
 
 
-def release_assets(repo: str, tag: str) -> set[str] | None:
-    """The asset names of the registry's release `tag`, or None when it has no such release."""
-    done = gh("release", "view", tag, "-R", repo, "--json", "assets", "--jq", ".assets[].name")
-    return set(done.stdout.split()) if done.returncode == 0 else None
+def release_assets(repo: str, tag: str) -> dict[str, str | None] | None:
+    """Each asset of the registry's release `tag` with the SHA-256 GitHub recorded for it (None for an asset older
+    than GitHub's digests), or None when it has no such release."""
+    done = gh("api", f"repos/{repo}/releases/tags/{quote(tag, safe='')}")
+    if done.returncode:
+        return None
+    return {asset["name"]: (asset.get("digest") or "").removeprefix("sha256:") or None
+            for asset in json.loads(done.stdout)["assets"]}
 
 
 def publish(repo: str, tag: str, title: str, file: Path, exists: bool) -> str | None:
@@ -146,9 +150,10 @@ def fetch(repo: str, listing: str, files: Path) -> list[str]:
 
 def mirror(repo: str, listing: str, files: Path) -> list[str]:
     """Copies each listed file the registry's `<id>-<version>` release lacks into it, under its own name, from the
-    downloaded and checked files: run only after `registry build` accepted them."""
+    downloaded and checked files: run only after `registry build` accepted them. An asset already there must be
+    the listed file, by GitHub's recorded SHA-256 or, without one, by downloading it."""
     errors = []
-    releases: dict[str, set[str] | None] = {}
+    releases: dict[str, dict[str, str | None] | None] = {}
     for digest, id_, version, file, _, _ in rows(listing):
         if not (parsed := parse(digest, id_, version, file)):
             errors.append(f"{digest} {id_}-{version} {file}: not a plain sha256, id, version and a file name or "
@@ -157,11 +162,20 @@ def mirror(repo: str, listing: str, files: Path) -> list[str]:
         tag, name, _ = parsed
         if tag not in releases:
             releases[tag] = release_assets(repo, tag)
-        if name in (releases[tag] or ()):
-            continue
         checked = files / digest
         if not checked.is_file() or sha256(checked) != digest:
             errors.append(f"{tag} {name}: not among the downloaded files")
+            continue
+        if name in (releases[tag] or ()):
+            held = releases[tag][name]
+            if held is None:
+                part = files / f"{digest}.part"
+                problem = download(asset_url(repo, tag, name), part, checked.stat().st_size)
+                held = None if problem is not None else sha256(part)
+                part.unlink(missing_ok=True)
+            if held != digest:
+                errors.append(f"{tag} {name}: the registry's release holds a different file than the entry's "
+                              f"sha256 {digest}")
             continue
         with tempfile.TemporaryDirectory() as folder:
             named = Path(folder) / name
@@ -170,7 +184,7 @@ def mirror(repo: str, listing: str, files: Path) -> list[str]:
         if failed:
             errors.append(f"{tag}: couldn't publish {name}: {failed}")
             continue
-        releases[tag] = (releases[tag] or set()) | {name}
+        releases[tag] = (releases[tag] or {}) | {name: digest}
         print(f"published {tag}/{name}")
     return errors
 
