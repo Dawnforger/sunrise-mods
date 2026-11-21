@@ -30,6 +30,16 @@ categories = ["technology", "utility"]
 tags = ["furnaces", "smelting", "automation", "energy", "generators"]
 
 [[versions]]
+version = "4.4.9"
+published = "2026-11-21"
+game = "26.3"
+file = "ironfurnaces-4.4.9.smod"
+sha256 = "1003453d3c900307a27e5e434b222f5503f7d3bc46468d71cbc2a0d46578656b"
+changelog = """
+- A newly placed furnace's first screen now shows its slots: items put in or taken out showed only after reopening it.
+"""
+
+[[versions]]
 version = "4.4.8"
 published = "2026-11-21"
 game = "26.3"
