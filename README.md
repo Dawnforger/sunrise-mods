@@ -117,14 +117,18 @@ the GitHub API. They never clone or run that source.
 - **`check`** runs on every pull request. It uses the tool pin and scripts from the base checkout and reads
   the proposed entries only as data. An unavailable Nightly source or a manifest with the wrong id fails the
   check. The remaining steps are:
-  - `scripts/fetch_files.py`: downloads every listed file and checks its hash;
+  - `scripts/fetch_files.py`: downloads every listed file and checks its hash. A version that names a stable
+    Sunrise release lists the author's own release asset, which is fetched from the author's repository until
+    the registry holds its copy; an older version's file comes from `staging`. A stable native build's signed
+    descriptor is fetched the same way, then the archives the verified descriptor names;
   - `registry review`: compares the pull request with `main`, and says which mods a takedown would leave without
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
   - `registry build`: builds the whole index the merge would publish.
 - **`publish`** runs on every push to `main`, and every three hours to refresh the release and Nightly
   metadata and counts. It warns about unavailable Nightly sources and leaves them out of the fetched metadata.
-  It creates the `<id>-<version>` release for each file still in `staging`, reads GitHub's download count of each
+  It creates the `<id>-<version>` release for each file still in `staging` or only in its author's release,
+  under the file's own name, with a stable native build's descriptor and archives beside it, reads GitHub's download count of each
   listed file's release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), and
   builds `index.json` with them. It deploys the index to GitHub Pages together with `icons/` and `screenshots/`.
   A count GitHub fails to answer (other than a repository that is gone) stops the run before it deploys, so

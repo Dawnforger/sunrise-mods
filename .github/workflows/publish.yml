@@ -44,8 +44,16 @@ jobs:
           path: files
           key: smod-files-${{ hashFiles('files.txt') }}
           restore-keys: smod-files-
+      # A file not yet in its `<id>-<version>` release here is copied into it under its own name: from the author's
+      # release for a stable row, from `staging` for an older one.
       - name: Publish new versions' files as releases
         run: python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files --publish
+      - name: Publish the stable builds' descriptors and archives beside them
+        run: |
+          cargo-sunrise-mod sunrise-mod registry list . --build-assets > descriptors.json
+          python3 -I scripts/fetch_files.py "${{ github.repository }}" descriptors.json files --publish
+          cargo-sunrise-mod sunrise-mod registry list . --build-assets --files files > archives.json
+          python3 -I scripts/fetch_files.py "${{ github.repository }}" archives.json files --publish
       - name: Build index.json
         run: |
           build() {

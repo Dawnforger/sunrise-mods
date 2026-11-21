@@ -1,5 +1,6 @@
 """Downloads the files `cargo sunrise-mod registry list` printed into <dir>/<sha256> (README.md, "How it works")."""
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -9,6 +10,10 @@ from pathlib import Path
 
 HEX = re.compile(r"[0-9a-f]{64}")
 PLAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+# A release asset's name: a stable build's carries `+<release>`. No pattern character of `gh release download -p`.
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,159}")
+ASSET = re.compile(r"https://github\.com/(?P<repo>[A-Za-z0-9-]+/[A-Za-z0-9._-]+)/releases/download/"
+                   r"(?P<tag>[A-Za-z0-9][A-Za-z0-9._+-]{0,127})/(?P<name>[^/?#\s]+)")
 
 
 def sha256(path: Path) -> str:
@@ -37,34 +42,53 @@ def publish(repo: str, tag: str, title: str, file: Path) -> str | None:
     return None if done.returncode == 0 else done.stderr.strip()
 
 
+def rows(listing: str):
+    """Each listed file as (sha256, id, version, file, size): the lines of `registry list`, where `file` is a plain
+    name or an author's release asset, or the JSON of `registry list --build-assets`."""
+    text = Path(listing).read_text()
+    if text.lstrip().startswith("["):
+        for row in json.loads(text):
+            yield row["sha256"], row["id"], row["version"], row["url"], row["size"]
+        return
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 4:
+            yield *parts, None
+
+
 def main(repo: str, listing: str, out: str, publishing: bool) -> int:
     files = Path(out)
     files.mkdir(parents=True, exist_ok=True)
     errors = []
-    for line in Path(listing).read_text().splitlines():
-        parts = line.split()
-        if len(parts) != 4:
-            continue
-        digest, id_, version, name = parts
+    for digest, id_, version, file, size in rows(listing):
         tag = f"{id_}-{version}"
-        if not (HEX.fullmatch(digest) and PLAIN.fullmatch(tag) and PLAIN.fullmatch(name) and "." in name):
-            errors.append(f"{line}: not a plain sha256, id, version and file name")
+        # A stable row names the author's own release asset; the registry keeps a copy under the same name.
+        theirs = ASSET.fullmatch(file)
+        name = theirs["name"] if theirs else file
+        if not (HEX.fullmatch(digest) and PLAIN.fullmatch(tag) and NAME.fullmatch(name) and "." in name
+                and (theirs or PLAIN.fullmatch(file))):
+            errors.append(f"{digest} {tag} {file}: not a plain sha256, id, version and a file name or GitHub release "
+                          "asset")
             continue
         target = files / digest
         if target.is_file() and sha256(target) == digest:
             continue
         with tempfile.TemporaryDirectory() as tmp:
             got = download(repo, tag, name, Path(tmp))
-            staged = got is None
-            if staged:
+            mirrored = got is not None
+            if got is None and theirs:
+                got = download(theirs["repo"], theirs["tag"], name, Path(tmp))
+                where = f"nor in {theirs['repo']}'s release {theirs['tag']}"
+            elif got is None:
                 got = download(repo, "staging", f"{digest}.{name.rsplit('.', 1)[1]}", Path(tmp))
+                where = f"nor in staging as {digest}.<extension>"
             if got is None:
-                errors.append(f"{tag} {name}: not in its release, nor in staging as {digest}.<extension>")
+                errors.append(f"{tag} {name}: not in its release, {where}")
                 continue
-            if sha256(got) != digest:
+            if (size is not None and got.stat().st_size != size) or sha256(got) != digest:
                 errors.append(f"{tag} {name}: the downloaded file isn't the one its sha256 names")
                 continue
-            if staged and publishing:
+            if not mirrored and publishing:
                 named = Path(tmp) / "out" / name
                 named.parent.mkdir()
                 shutil.copyfile(got, named)
@@ -74,7 +98,8 @@ def main(repo: str, listing: str, out: str, publishing: bool) -> int:
                     continue
                 print(f"published {tag}/{name}")
             shutil.move(got, target)
-            print(f"{digest} {tag}/{name}{' (staging)' if staged else ''}")
+            source = "" if mirrored else f" ({theirs['repo']})" if theirs else " (staging)"
+            print(f"{digest} {tag}/{name}{source}")
     for e in errors:
         print(f"error: {e}", file=sys.stderr)
     return 1 if errors else 0

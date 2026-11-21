@@ -48,8 +48,17 @@ jobs:
           path: files
           key: smod-files-${{ hashFiles('files.txt') }}
           restore-keys: smod-files-
+      # A stable row's file is the author's own release asset, fetched from there until the registry has its copy.
       - name: Download every listed file not cached
         run: python3 -I base/scripts/fetch_files.py "${{ github.repository }}" files.txt files
+      # A stable native build: its signed descriptor first, then the archives the verified descriptor names.
+      - name: Download the stable builds' descriptors and archives
+        if: steps.data.outcome == 'success'
+        run: |
+          cargo-sunrise-mod sunrise-mod registry list head --build-assets > descriptors.json
+          python3 -I base/scripts/fetch_files.py "${{ github.repository }}" descriptors.json files
+          cargo-sunrise-mod sunrise-mod registry list head --build-assets --files files > archives.json
+          python3 -I base/scripts/fetch_files.py "${{ github.repository }}" archives.json files
       # After the download: the review reads the listed files to say which mods a takedown leaves
       # without a dependency, and refuses to review a takedown without them.
       - name: Review the change against main
@@ -58,12 +67,12 @@ jobs:
         run: |
           set -o pipefail
           cargo-sunrise-mod sunrise-mod registry review base head --author "$AUTHOR" --files files \
-            ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json' || '' }} | tee review.txt
+            ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json --sdk-data registry-data/sdk-data' || '' }} | tee review.txt
           { echo '### Registry review'; echo '```'; cat review.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Check the new files
         run: >-
           cargo-sunrise-mod sunrise-mod registry check base head --files files
-          ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json' || '' }}
+          ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json --sdk-data registry-data/sdk-data' || '' }}
       - name: Build the index the merge would publish
         run: >-
           cargo-sunrise-mod sunrise-mod registry build head --files files --out index.json
