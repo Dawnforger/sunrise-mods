@@ -10,7 +10,15 @@ says who answers for them and when one is taken down.
 A project belongs to its authors, and its entry's `owners` answer for it. Each project is under the licence its
 entry names, and the registry accepts non-commercial licences (such as CC-BY-NC-SA-4.0), because listing and
 installing are free. Sunrise reviews each entry before listing it, but listing is not an endorsement, and the review is
-no guarantee.
+no guarantee. Source listings are reviewed only as listings (see [Source mods](#source-mods)).
+
+## Source mods
+
+A listing in the Nightly source list (`sources/`) is checked when it is added or changed: its format, that the
+repository is public and named as GitHub names it, and that the mod's manifest is where the listing says. Its code
+is not reviewed, at that commit or later ones. Players build it from source on their own computers, after the
+launcher tells them so and asks for their consent. The owner of the listed repository answers for the code, and
+the promises below apply to it as to any file listed here. A listing that breaks them is removed from `sources/`.
 
 ## What an author promises
 
