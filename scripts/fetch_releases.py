@@ -11,31 +11,20 @@ from pathlib import Path
 REPO = "sunrise-org/sunrise"
 SHA = re.compile(r"[0-9a-f]{40}")
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-TIMESTAMP = re.compile(DATE.pattern + r"T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
-NUMBER = r"(0|[1-9][0-9]{0,19})"
 # A Nightly release's title, as Sunrise's verifier reads it (sunrise-release-sign: build_title_version).
 TITLE = re.compile(rf"Nightly (?P<date>{DATE.pattern}) · (?P<short>[0-9a-f]{{7,40}})")
-STABLE = re.compile(rf"[0-9]+(?:\.[0-9]+)+-{NUMBER}\.{NUMBER}\.{NUMBER}")
+MAX_ASSET = 16 << 20  # The Nightly's metadata files are far smaller.
 
 
-def api(path: str, *flags: str):
-    return json.loads(subprocess.check_output(["gh", "api", *flags, f"repos/{REPO}/{path}"]))
-
-
-def commit_of(tag: str) -> str:
-    # A release's target_commitish is not its tag. Peel annotated tags as well as lightweight ones.
-    target = api(f"git/ref/tags/{tag}")["object"]
-    seen = set()
-    while True:
-        kind, sha = target["type"], target["sha"]
-        if not isinstance(sha, str) or not SHA.fullmatch(sha):
-            sys.exit(f"{tag}: GitHub did not return a full commit or tag SHA")
-        if kind == "commit":
-            return sha
-        if kind != "tag" or sha in seen:
-            sys.exit(f"{tag}: tag does not point to a commit")
-        seen.add(sha)
-        target = api(f"git/tags/{sha}")["object"]
+def asset(row: dict) -> bytes:
+    """One small release asset by its id, so it is the asset of the release record that listed it."""
+    if type(row["id"]) is not int or type(row["size"]) is not int or not 0 < row["size"] <= MAX_ASSET:
+        sys.exit(f"nightly: {row['name']} has no usable id and size")
+    data = subprocess.run(["gh", "api", "-H", "Accept: application/octet-stream",
+                           f"repos/{REPO}/releases/assets/{row['id']}"], capture_output=True, check=True).stdout
+    if len(data) != row["size"]:
+        sys.exit(f"nightly: {row['name']} is not the size its release lists")
+    return data
 
 
 def nightly() -> dict | None:
@@ -48,15 +37,21 @@ def nightly() -> dict | None:
         if "HTTP 404" in found.stderr:
             return None
         sys.exit(f"nightly: {found.stderr.strip()}")
-    title = json.loads(found.stdout)["name"]
+    # One release record gives the title and the assets: a rotation between two lookups of the moving tag could
+    # pair one Nightly's title with another's files.
+    record = json.loads(found.stdout)
+    title = record["name"]
     named = TITLE.fullmatch(title) if isinstance(title, str) else None
     if not named:
         sys.exit("nightly: the release's title does not name its date and commit")
     build = f"nightly-{named['date']}-{named['short']}"
     date.fromisoformat(named["date"])
+    listed = {row["name"]: row for row in record["assets"]}
     with tempfile.TemporaryDirectory() as folder:
-        subprocess.run(["gh", "release", "download", "nightly", "-R", REPO, "-D", folder, "-p", "sdk.json",
-                        "-p", "sunrise-release.json", "-p", "SHA256SUMS", "-p", "SHA256SUMS.v2.sig"], check=True)
+        for name in ("sdk.json", "sunrise-release.json", "SHA256SUMS", "SHA256SUMS.v2.sig"):
+            if name not in listed:
+                sys.exit(f"nightly: the release has no {name}")
+            (Path(folder) / name).write_bytes(asset(listed[name]))
         subprocess.run(["sunrise-release-sign", "verify", "--repository", REPO, "--tag", build,
                         "--signature", "SHA256SUMS.v2.sig", "--only", "sdk.json", "--only", "sunrise-release.json",
                         folder], check=True)
@@ -73,19 +68,13 @@ def nightly() -> dict | None:
 
 
 def main(out: Path, optional: bool) -> None:
-    tags = set()
-    for page in api("releases?per_page=100", "--paginate", "--slurp"):
-        for release in page:
-            tag, published = release["tag_name"], release["published_at"]
-            match = STABLE.fullmatch(tag) if isinstance(tag, str) else None
-            if (match and release["draft"] is False and release["prerelease"] is False
-                    and isinstance(published, str) and TIMESTAMP.fullmatch(published)
-                    and all(int(n) < 1 << 64 for n in match.groups())):
-                tags.add(tag)
-    releases = [{"tag": tag, "commit": commit_of(tag)} for tag in sorted(tags)]
-    current = nightly()
     out.mkdir(parents=True, exist_ok=True)
-    (out / "releases.json").write_text(json.dumps(releases) + "\n")
+    # The pinned tool lists the stable releases and resolves their tags: it stops on pagination that shifts under
+    # it instead of returning part of the list.
+    subprocess.run(["cargo-sunrise-mod", "sunrise-mod", "registry", "releases", "--out", str(out / "releases.json")],
+                   check=True)
+    releases = json.loads((out / "releases.json").read_text())
+    current = nightly()
     # The cache key follows the commits, not the release names or their dates.
     commits = {r["commit"] for r in releases}
     if current:

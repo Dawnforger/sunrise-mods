@@ -16,21 +16,38 @@ RELEASE = {"contract": 1, "channel": "nightly", "build": "nightly-2026-11-20-942
 SDK = {"schema": 1, "build": {"commit": COMMIT, "date": "2026-11-19"}}
 
 
-def runner(release, sdk, missing=False, title="Nightly 2026-11-20 · 9425651"):
-    """subprocess.run for the Nightly lookup, its download and its signature check."""
+NAMES = ("sdk.json", "sunrise-release.json", "SHA256SUMS", "SHA256SUMS.v2.sig")
+
+
+def runner(release, sdk, missing=False, title="Nightly 2026-11-20 · 9425651", rotated=False):
+    """subprocess.run for the tool's stable list, the Nightly's one release record, its assets by id and the
+    signature check."""
+    files = {"sdk.json": json.dumps(sdk).encode(), "sunrise-release.json": json.dumps(release).encode(),
+             "SHA256SUMS": b"sums", "SHA256SUMS.v2.sig": b"signature"}
+    lookups = []
+
     def run(command, **_):
-        if command[:2] == ["gh", "api"]:
+        if command[0] == "cargo-sunrise-mod":
+            assert command[1:4] == ["sunrise-mod", "registry", "releases"]
+            Path(command[command.index("--out") + 1]).write_text(json.dumps([{"tag": "26.3-0.1.0", "commit": STABLE}]))
+        elif command[:2] == ["gh", "api"] and command[-1].endswith("/releases/tags/nightly"):
+            lookups.append(command)
+            assert len(lookups) == 1, "the moving tag is looked up once"
+            assets = [{"name": name, "id": 100 + i, "size": len(files[name]) + int(rotated)}
+                      for i, name in enumerate(NAMES)]
             return mock.Mock(returncode=int(missing), stderr="gh: Not Found (HTTP 404)" if missing else "",
-                             stdout=json.dumps({"name": title}))
-        if command[:3] == ["gh", "release", "download"]:
-            folder = Path(command[command.index("-D") + 1])
-            (folder / "sunrise-release.json").write_text(json.dumps(release))
-            (folder / "sdk.json").write_text(json.dumps(sdk))
+                             stdout=json.dumps({"id": 7, "name": title, "assets": assets}))
+        elif command[:2] == ["gh", "api"]:
+            # An asset is fetched by the id its release record gave, never through the tag again.
+            number = int(command[-1].removeprefix(f"repos/{fetch_releases.REPO}/releases/assets/"))
+            return mock.Mock(returncode=0, stdout=files[NAMES[number - 100]])
         else:
+            assert command[0] == "sunrise-release-sign"
             # Both files are covered by the signature for the build the release's title names.
             value = lambda flag: [command[i + 1] for i, a in enumerate(command) if a == flag]
             assert value("--only") == ["sdk.json", "sunrise-release.json"]
             assert value("--signature") == ["SHA256SUMS.v2.sig"]
+            assert sorted(f.name for f in Path(command[-1]).iterdir()) == sorted(NAMES)
             if value("--tag") != ["nightly-2026-11-20-9425651"]:
                 raise fetch_releases.subprocess.CalledProcessError(1, command)
         return mock.Mock(returncode=0)
@@ -63,20 +80,28 @@ class Nightly(unittest.TestCase):
             with self.subTest(release=release, sdk=sdk), self.assertRaises(SystemExit):
                 self.nightly(release, sdk)
 
+    def test_an_asset_that_is_not_the_listed_one_is_refused(self):
+        with self.assertRaises(SystemExit):
+            self.nightly(rotated=True)
+
     def test_an_absent_nightly_leaves_only_the_nightly_out_when_optional(self):
         folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        stable = [[{"tag_name": "26.3-0.1.0", "published_at": "2026-11-20T00:00:00Z", "draft": False,
-                    "prerelease": False}]]
-        with mock.patch.object(fetch_releases, "api", return_value=stable), \
-                mock.patch.object(fetch_releases, "commit_of", return_value=STABLE), \
-                mock.patch.object(fetch_releases.subprocess, "run", runner(RELEASE, SDK, missing=True)):
+        with mock.patch.object(fetch_releases.subprocess, "run", runner(RELEASE, SDK, missing=True)):
             with self.assertRaises(SystemExit):
                 fetch_releases.main(folder / "required", False)
+        with mock.patch.object(fetch_releases.subprocess, "run", runner(RELEASE, SDK, missing=True)):
             fetch_releases.main(folder, True)
         self.assertEqual(json.loads((folder / "releases.json").read_text()), [{"tag": "26.3-0.1.0", "commit": STABLE}])
         self.assertEqual((folder / "sdk-commits.txt").read_text(), STABLE + "\n")
         self.assertFalse((folder / "nightly-build.json").exists())
 
+    def test_the_inputs_name_the_stable_and_nightly_commits(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with mock.patch.object(fetch_releases.subprocess, "run", runner(RELEASE, SDK)):
+            fetch_releases.main(folder, False)
+        self.assertEqual(json.loads((folder / "nightly-build.json").read_text()),
+                         {"commit": COMMIT, "date": "2026-11-20"})
+        self.assertEqual((folder / "sdk-commits.txt").read_text(), f"{STABLE}\n{COMMIT}\n")
 
 if __name__ == "__main__":
     unittest.main()
