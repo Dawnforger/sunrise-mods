@@ -179,6 +179,17 @@ class Check(Case):
         self.assertEqual(code, 0)
         self.assertIn(f"raw driftwood/trail-atlas {COMMIT} mods/trail_atlas/sunrise-mod.toml", asked)
 
+    def test_branch_and_tag_names_are_escaped_in_api_paths(self):
+        github = {
+            **GITHUB,
+            "repos/driftwood/trail-atlas/git/ref/heads/fix/a%231%2Bb": GITHUB["repos/driftwood/trail-atlas/git/ref/heads/main"],
+            "repos/driftwood/trail-atlas/releases/latest": {"tag_name": "v1#2"},
+            "repos/driftwood/trail-atlas/git/ref/tags/v1%232": {"object": {"type": "commit", "sha": COMMIT}},
+        }
+        for track in ['{ branch = "fix/a#1+b" }', "{ release = true }"]:
+            with self.subTest(track=track):
+                self.assertEqual(self.run_check({}, {"trail_atlas.toml": edited(track=track)}, github=github)[0], 0)
+
     def test_an_unchanged_entry_asks_github_nothing(self):
         code, asked = self.run_check({"trail_atlas.toml": ENTRY}, {"trail_atlas.toml": ENTRY})
         self.assertEqual((code, asked), (0, []))
