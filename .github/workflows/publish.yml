@@ -33,36 +33,38 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/tool
       - uses: ./.github/actions/registry-data
-        with:
-          checkout: .
-          warn: 'true'
       - run: mkdir -p mods files site
       - run: cargo-sunrise-mod sunrise-mod registry list . > files.txt
+      - run: cargo-sunrise-mod sunrise-mod registry list . --build-assets > descriptors.json
       # As in check: the cache keeps our own runs out of the download counts.
       - uses: actions/cache@v4
         with:
           path: files
-          key: smod-files-${{ hashFiles('files.txt') }}
+          key: smod-files-${{ hashFiles('files.txt', 'descriptors.json') }}
           restore-keys: smod-files-
-      # A file not yet in its `<id>-<version>` release here is copied into it under its own name: from the author's
-      # release for a stable row, from `staging` for an older one.
-      - name: Publish new versions' files as releases
-        run: python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files --publish
-      - name: Publish the stable builds' descriptors and archives beside them
+      # Nothing becomes a public asset here before the build below has checked it. A file comes from its
+      # `<id>-<version>` release here, else from the author's release for a stable row or `staging` for an older one;
+      # each download stops at the tool's size limit, or at the size a verified descriptor gives its archive.
+      - name: Download every listed file not cached
         run: |
-          cargo-sunrise-mod sunrise-mod registry list . --build-assets > descriptors.json
-          python3 -I scripts/fetch_files.py "${{ github.repository }}" descriptors.json files --publish
+          python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files
+          python3 -I scripts/fetch_files.py "${{ github.repository }}" descriptors.json files
           cargo-sunrise-mod sunrise-mod registry list . --build-assets --files files > archives.json
-          python3 -I scripts/fetch_files.py "${{ github.repository }}" archives.json files --publish
+          python3 -I scripts/fetch_files.py "${{ github.repository }}" archives.json files
       - name: Build index.json
         run: |
           build() {
             cargo-sunrise-mod sunrise-mod registry build . --files files --out site/index.json \
               --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --releases registry-data/releases.json --sdk-data registry-data/sdk-data \
-              --nightly-build registry-data/nightly-build.json --nightly registry-data/nightly.json "$@"
+              --nightly-build registry-data/nightly-build.json "$@"
           }
+          # The build checks every package, descriptor and archive; only then are the ones this repository's
+          # releases lack copied into `<id>-<version>` under their own names, where the index points.
           build
+          for list in files.txt descriptors.json archives.json; do
+            python3 -I scripts/fetch_files.py "${{ github.repository }}" "$list" files --mirror
+          done
           # GitHub's download and star counts for the files and sources the index lists, then the index with them.
           python3 -I scripts/fetch_counts.py site/index.json > counts.json
           build --counts counts.json

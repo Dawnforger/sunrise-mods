@@ -46,25 +46,27 @@ jobs:
       - id: data
         if: hashFiles('base/.github/actions/registry-data/action.yml') != ''
         uses: ./base/.github/actions/registry-data
-        with:
-          checkout: head
       - run: mkdir -p base/mods head/mods files
       - run: cargo-sunrise-mod sunrise-mod registry list head > files.txt
+      # The stable native builds' signed descriptors: a build added to a published version changes this list only.
+      - run: echo '[]' > descriptors.json
+      - if: steps.data.outcome == 'success'
+        run: cargo-sunrise-mod sunrise-mod registry list head --build-assets > descriptors.json
       # Files are named by their sha256 and rechecked on download, so a cached copy is never trusted
       # unchecked. Without the cache, each run would add one to every listed file's download count.
       - uses: actions/cache@v4
         with:
           path: files
-          key: smod-files-${{ hashFiles('files.txt') }}
+          key: smod-files-${{ hashFiles('files.txt', 'descriptors.json') }}
           restore-keys: smod-files-
       # A stable row's file is the author's own release asset, fetched from there until the registry has its copy.
+      # Each download stops at the tool's size limit, or at the size a verified descriptor gives its archive.
       - name: Download every listed file not cached
         run: python3 -I base/scripts/fetch_files.py "${{ github.repository }}" files.txt files
       # A stable native build: its signed descriptor first, then the archives the verified descriptor names.
       - name: Download the stable builds' descriptors and archives
         if: steps.data.outcome == 'success'
         run: |
-          cargo-sunrise-mod sunrise-mod registry list head --build-assets > descriptors.json
           python3 -I base/scripts/fetch_files.py "${{ github.repository }}" descriptors.json files
           cargo-sunrise-mod sunrise-mod registry list head --build-assets --files files > archives.json
           python3 -I base/scripts/fetch_files.py "${{ github.repository }}" archives.json files
@@ -86,7 +88,7 @@ jobs:
         run: >-
           cargo-sunrise-mod sunrise-mod registry build head --files files --out index.json
           --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json --sdk-data registry-data/sdk-data --nightly-build registry-data/nightly-build.json --nightly registry-data/nightly.json' || '' }}
+          ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json --sdk-data registry-data/sdk-data --nightly-build registry-data/nightly-build.json' || '' }}
 
   # The registry's own scripts' tests, on the pull request's copy, with no token.
   scripts:

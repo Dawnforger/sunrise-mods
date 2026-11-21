@@ -1,12 +1,5 @@
 name: Registry inputs
-description: Fetch Sunrise's release and SDK data, and GitHub metadata for each Nightly source
-inputs:
-  checkout:
-    description: The registry checkout to read as data
-    required: true
-  warn:
-    description: Leave unavailable Nightly sources out of the metadata instead of failing
-    default: 'false'
+description: Fetch Sunrise's stable releases, the current Nightly's build and their signed SDK data
 runs:
   using: composite
   steps:
@@ -25,12 +18,3 @@ runs:
       run: >-
         python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_sdk_data.py"
         registry-data registry-data/sdk-data
-    - name: Read Nightly source metadata
-      shell: bash
-      env:
-        CHECKOUT: ${{ inputs.checkout }}
-        WARN: ${{ inputs.warn }}
-      run: |
-        args=()
-        if [ "$WARN" = true ]; then args+=(--warn); fi
-        python3 -I "$GITHUB_ACTION_PATH/../../../scripts/fetch_nightly.py" "$CHECKOUT" registry-data/nightly.json "${args[@]}"
