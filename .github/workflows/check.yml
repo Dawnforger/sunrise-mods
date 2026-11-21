@@ -30,6 +30,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head
           persist-credentials: false
+      # The Nightly source list (README.md, "Source mods"): every entry's shape, then GitHub for new or changed
+      # ones. Until main has the script (the pull request that adds it), that pull request's own copy runs.
+      - name: Check the source list
+        run: |
+          set -o pipefail
+          script=base/scripts/build_sources.py
+          [ -f "$script" ] || script=head/scripts/build_sources.py
+          python3 -I "$script" check base head | tee sources.txt
+          { echo '### Source list'; echo '```'; cat sources.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: ./base/.github/actions/tool
         with:
           registry: base
@@ -59,3 +68,13 @@ jobs:
         run: >-
           cargo-sunrise-mod sunrise-mod registry build head --files files --out index.json
           --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # The registry's own scripts' tests, on the pull request's copy, with no token.
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: python3 -I -m unittest discover -s scripts -v
