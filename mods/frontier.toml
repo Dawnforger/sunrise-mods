@@ -26,7 +26,7 @@ A minimap, a world map of everywhere you have been, waypoints, and an entity rad
 
 ## Creatures, items and markers
 
-- An entity radar on both maps: red for monsters, green for animals, yellow for villagers, and white for other players, who show their skin's face. Only what is on the layer you are looking at is shown (other players always are): in cave mode, within about 5 blocks of your height or that cave layer's floor; on the surface, mobs, items and things under the ground are hidden.
+- An entity radar on both maps: red for monsters, green for animals, yellow for villagers, and white for other players, who show their skin's face. To draw a face, Sunrise may send that player's username to Minecraft's profile service to fetch the skin, the same lookup the game does for skins. Only what is on the layer you are looking at is shown (other players always are): in cave mode, within about 5 blocks of your height or that cave layer's floor; on the surface, mobs, items and things under the ground are hidden.
 - Dropped items (on at first) as small black dots; pointing at one on the world map names it. While Tab is held, each one is drawn as its item's own icon (with your resource packs, on no backing) and its real name (a custom name, or the item's name in your language, with the count).
 - Creatures another mod draws with its own renderer show the marker image their mod or a resource pack ships at `assets/<namespace>/textures/frontier/markers/<path>.png`, else a dot.
 - Optional things (item frames, armour stands, minecarts, boats and the like) and block markers for storage and decorations, off at first.
