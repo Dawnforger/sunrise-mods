@@ -5,6 +5,11 @@ After a merge, CI publishes the index that the launcher and [playsunrise.net/mod
 
 **<https://sunrise-org.github.io/sunrise-mods/index.json>**
 
+Beside it, CI publishes the Nightly source list: native mods a player's launcher builds from their GitHub source
+([Source mods](#source-mods)):
+
+**<https://sunrise-org.github.io/sunrise-mods/sources.json>**
+
 The format of the index and the rules for an entry are set in Sunrise's own code and docs:
 [registry-index.md](https://github.com/sunrise-org/sunrise/blob/main/docs/modding/src/reference/registry-index.md)
 and `sunrise_mod_package::index::registry`. CI runs that code (`cargo sunrise-mod registry`) and doesn't
@@ -19,8 +24,9 @@ reimplement it. What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY
 | `collections/<id>.toml` | A collection: a named list of mods already listed here, shown as one card |
 | `screenshots/<id>/<name>.png\|.jpg` | 1–8 images of the project in game. A new project needs at least one, and so does a listed project whose pull request adds a version. Collections need none; a mod in the `library` category needs none |
 | `revoked.toml` | Files taken down. The launcher refuses to install them and turns installed copies off |
+| `sources/<id>.toml` | A source mod's listing for the Nightly list: its repository, where its manifest is, and the branch or release to follow |
 
-The `mods/` and `collections/` folders hold only `<id>.toml` files.
+The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
 
 ## Submitting a project
 
@@ -70,8 +76,8 @@ are refused. The category lists are in
 **Updates.** To publish an update, add a new `[[versions]]` table at the top of the list. A published file
 never changes and is never removed: to take one down, add it to `revoked.toml`. A project's kind can't change.
 
-**Code mods.** Sunrise doesn't take new entries that follow a repository's releases (`repo = ...`). Every
-version is listed as its own file, as shown above.
+**Code mods.** A `mods/` entry doesn't follow a repository's releases (`repo = ...`). Every version is listed as its
+own file, as shown above. To list a native mod by its source instead, see [Source mods](#source-mods).
 
 ## Collections
 
@@ -105,6 +111,34 @@ to `members`. When you are an owner of the collection and of the mod, and the pu
 the review marks it routine. A new collection, a change to its name, summary, description, icon, owners, member
 order or defaults, and a member you do not own all wait for a reviewer.
 
+## Source mods
+
+The Nightly list names native mods by their source on GitHub. A player's launcher downloads the source at the
+branch or release you name and builds it on their computer, after telling them the code hasn't been reviewed and
+asking once for that mod. A listing is reviewed for its format and checked against GitHub when it is added or
+changed: the repository is public, its name and id match, the branch or release exists, and the mod's
+`sunrise-mod.toml` and its `Cargo.toml` parse at that commit. **The code is never reviewed or built here.** A
+listing can sit beside a `mods/` entry of the same mod; the launcher then also offers the reviewed file.
+
+To list one, open a pull request that adds `sources/<id>.toml`:
+
+```toml
+id = "trail_atlas"                              # the id in the mod's sunrise-mod.toml; the file is sources/<id>.toml
+name = "Trail Atlas"                            # plain text, 1 to 80 characters
+summary = "A field atlas for marking trails and camps."   # plain text, 1 to 160 characters
+repo = "driftwood/trail-atlas"                  # GitHub owner/name exactly as GitHub spells it, no URL
+repo_id = 123456789                             # the repository's GitHub id: gh api repos/driftwood/trail-atlas --jq .id
+manifest = "mods/trail_atlas/sunrise-mod.toml"  # where the manifest is in the repository; "sunrise-mod.toml" at its root
+track = { branch = "main" }                     # or { release = true }: the latest published release, not pre-releases
+```
+
+- Every key is required and no others are allowed. The `Cargo.toml` beside the manifest is the mod's crate, and the
+  manifest needs a `[native]` table: a content-only mod is listed in `mods/` as a file instead.
+- One repository may hold several mods, each with its own listing and manifest path.
+- A listing has no URLs: the launcher builds every address from `repo` and the commit it resolves.
+- Removing a listing takes the mod off the list; players who built it keep their copy. Rename a moved repository
+  in the listing (GitHub's new `owner/name`; its id stays the same).
+
 ## How it works
 
 Both workflows build `cargo-sunrise-mod` and the release verifier from the `sunrise-org/sunrise` commit named
@@ -125,14 +159,17 @@ the GitHub API. They never clone or run that source.
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
   - `registry build`: builds the whole index the merge would publish.
+  Before those, `scripts/build_sources.py check` checks every `sources/` listing and asks GitHub about the new or
+  changed ones. A separate job runs the tests of the registry's own scripts.
 - **`publish`** runs on every push to `main`, and every three hours to refresh the release and Nightly
   metadata and counts. It warns about unavailable Nightly sources and leaves them out of the fetched metadata.
   It creates the `<id>-<version>` release for each file still in `staging` or only in its author's release,
-  under the file's own name, with a stable native build's descriptor and archives beside it, reads GitHub's download count of each
-  listed file's release asset and the stars of each project's source repository (`scripts/fetch_counts.py`), and
-  builds `index.json` with them. It deploys the index to GitHub Pages together with `icons/` and `screenshots/`.
-  A count GitHub fails to answer (other than a repository that is gone) stops the run before it deploys, so
-  the last good index stays live.
+  under the file's own name, with a stable native build's descriptor and archives beside it, reads GitHub's
+  download count of each listed file's release asset and the stars of each project's source repository
+  (`scripts/fetch_counts.py`), builds `index.json` with them, writes `sources.json` from `sources/`
+  (`scripts/build_sources.py build`, without asking GitHub), and deploys both to GitHub Pages together with
+  `icons/` and `screenshots/`. A count GitHub fails to answer (other than a repository that is gone) stops the
+  run before it deploys, so the last good index stays live.
   Both workflows keep the downloaded files in an Actions cache, so our own runs fetch only files they haven't
   seen and stay out of the download counts.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.
