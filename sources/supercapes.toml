@@ -5,4 +5,3 @@ repo = "Zekrenlight/supercapes"
 repo_id = 1464968198
 manifest = "sunrise-mod.toml"
 track = { branch = "main" }
-icon = "icons/supercapes.png"
