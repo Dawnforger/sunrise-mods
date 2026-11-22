@@ -23,7 +23,9 @@ Every player and the server need the same build of this mod. Clients without it 
 
 ## Known differences
 
-A few things the engine can't express yet differ from Farmer's Delight. The item-default config keys have no effect. The village config keys can't switch off the village additions. In single player, clicking a recipe in the pot's recipe book doesn't place it (it works on servers). `enableVanillaCropCrates = false` doesn't remove the vanilla crop crate recipes. On page 2 of the creative inventory, the hovered tab's name can overlap a page-1 tab's name (sunrise-org/sunrise#2646, fixed in Sunrise builds after the one this version is made for). The full list is in the README.
+A few things the engine can't express yet differ from Farmer's Delight. The item-default config keys have no effect. The village config keys can't switch off the village additions. The full list is in the README.
+
+Version `3.6.30-sunrise.2` is for the Sunrise Nightly `9425651`; `3.6.30-sunrise.1` is for Sunrise `2d81263`, where also: in single player, clicking a recipe in the pot's recipe book doesn't place it; `enableVanillaCropCrates = false` doesn't remove the vanilla crop crate recipes; on page 2 of the creative inventory a tab name can overlap another (sunrise-org/sunrise#2646).
 """
 authors = ["vectorwing", "MehVahdJukaar", "cassiancc", "play-go"]
 owners = ["play-go"]
@@ -33,6 +35,18 @@ icon = "icons/ported_farmersdelight.png"
 screenshots = ["screenshots/ported_farmersdelight/1-kitchen.png", "screenshots/ported_farmersdelight/2-crops.png", "screenshots/ported_farmersdelight/3-cooking-pot.png"]
 categories = ["food", "decoration", "worldgen"]
 tags = ["farmers-delight", "cooking", "crops", "farming", "knives", "feasts", "delight"]
+
+[[versions]]
+version = "3.6.30-sunrise.2"
+published = "2026-11-22"
+game = "26.3"
+file = "ported_farmersdelight-3.6.30-sunrise.2.smod"
+sha256 = "49637af5e6eccd65bfb85a3b99c238eb08a5185d5cccb38aea30dfc8f64d2092"
+changelog = """
+- For the Sunrise Nightly `9425651` (2026-11-19); `3.6.30-sunrise.1` stays the build for `2d81263`.
+- Closer to Farmer's Delight: a player under Nourishment can always eat; Nourishment respects `naturalHealthRegeneration`; `enableVanillaCropCrates = false` removes the vanilla crate recipes again; the skillet fires `minecraft:consume_item`.
+- Fixed: hoppers no longer feed the stove and skillet; the cooking pot's meal tooltip matches Farmer's Delight.
+"""
 
 [[versions]]
 version = "3.6.30-sunrise.1"
