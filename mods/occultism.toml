@@ -60,3 +60,11 @@ game = "26.3"
 file = "occultism-0.11.1-alpha.1.smod"
 sha256 = "ef888e43ef8dc44ed40d0d52ab988a09755d29117b41866f40e4b21a272ffec1"
 changelog = "0.10 and 0.11 in one step. Added: Occultism's chalk crafting in all sixteen colours, crusher spirits (in place of the Demonic Altar and its cores, removed), smelter and crystallizer spirits, sixteen possessed creatures, pastes, cursed honey and demonic meat, the otherworld tree, the spirit campfire, and the Dictionary of Spirits with pentacle previews and ritual satchels. Fixed: whole cubes on the dimensional matrix, no see-through floor under the mineshaft, Actuator and wormhole, and ritual pages' text. Security: store ids and soul-gem work areas read from items and worlds are checked, so a forged one can't make a save write outside the world or stall the server. Same id and saved worlds as 0.9.0-alpha.2."
+
+[[versions]]
+version = "0.11.2-alpha.1"
+published = "2026-11-21"
+game = "26.3"
+file = "occultism-0.11.2-alpha.1.smod"
+sha256 = "223ce1d2ec34e2718825e12bd792a1258ebc056546641ffd56b8d66b5ea8d14c"
+changelog = "Security fix from the Horizon registry's review: a ritual satchel builds only for a player who may build (not in adventure or spectator mode), when the place clicked is within reach and part of the previewed pentacle, and only inside the world border; at most 4 builds wait per player and they go when the player leaves. Before, a modified client could make a satchel build anywhere in a loaded area. Nothing else changed in game."
