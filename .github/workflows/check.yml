@@ -42,10 +42,10 @@ jobs:
         with:
           nightly-optional: 'true'
       - run: mkdir -p base/mods head/mods files
-      # A native mod's version is listed in mods/ only for a stable release; Nightly and Dev use sources/.
-      - name: Refuse a native version with no stable release
-        if: hashFiles('base/scripts/check_native_rows.py') != ''
-        run: python3 -I base/scripts/check_native_rows.py base head
+      # A version is listed in mods/ only for a stable release; a native mod for Nightly and Dev uses sources/.
+      - name: Refuse a version with no stable release
+        if: hashFiles('base/scripts/check_stable_rows.py') != ''
+        run: python3 -I base/scripts/check_stable_rows.py base head
       - run: cargo-sunrise-mod sunrise-mod registry list head > files.txt
       # The stable native builds' signed descriptors: a build added to a published version changes this list only.
       - run: echo '[]' > descriptors.json

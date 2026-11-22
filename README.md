@@ -12,8 +12,8 @@ There are two ways in, and they differ in what Sunrise checks.
   Sunrise release ([Submitting a project](#submitting-a-project)). CI checks the file, and a person reviews
   the entry before it is listed.
 
-A native mod's version goes in `mods/` only for a stable release: CI refuses one that names none, and its
-source listing is how Nightly and Dev players get it. A mod can have both.
+A version goes in `mods/` only for a stable release: CI refuses a new one that names none, whatever the
+project's kind. A native mod's source listing is how Nightly and Dev players get it, and a mod can have both.
 
 What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY.md). The format of the index and the rules for
 an entry are in
@@ -51,8 +51,8 @@ The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
 
 ## Submitting a project
 
-This is the route for a stable Sunrise release, and for content-only mods and packs. A native mod for Nightly
-and Dev is listed by its source instead ([Source mods](#source-mods)).
+This is the route for a stable Sunrise release. A native mod for Nightly and Dev is listed by its source
+instead ([Source mods](#source-mods)).
 
 1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it; a
    version for a stable Sunrise release must be signed).
@@ -65,10 +65,8 @@ and Dev is listed by its source instead ([Source mods](#source-mods)).
      that already lists unsigned versions can't add a `key` yet, because every listed version would then need
      a signature and a published version's row can't be changed: it waits for the registry's migration of the
      existing entries before it submits its first stable version.
-   - A native mod's version that names no stable release is refused: list its source in `sources/<id>.toml`.
-   - For any other version (a content-only mod or a pack that names no stable release), link the exact file in the description (a GitHub release asset works) and give its
-     SHA-256. A maintainer copies that file to this repository's `staging` release as `<sha256>.<extension>`,
-     and the `check` workflow then tests it.
+   - A version that names no stable release is refused. For a native mod, list its source in
+     `sources/<id>.toml` instead.
 4. A reviewer reads the change and merges it. The `publish` workflow then publishes the file as the release
    `<id>-<version>` and adds the project to the index.
 
@@ -203,8 +201,7 @@ publishes the next one: `check` then warns and judges a pull request against the
     the registry holds its copy; an older version's file comes from `staging`. A stable native build's signed
     descriptor is fetched the same way, then the archives the verified descriptor names. A download stops at
     the registry tool's size limit, or at the size the descriptor gives an archive;
-  - `scripts/check_native_rows.py`: refuses a new or changed native-mod version in `mods/` that names no stable
-    release;
+  - `scripts/check_stable_rows.py`: refuses a new or changed version in `mods/` that names no stable release;
   - `registry review`: compares the pull request with `main`, and says which mods a takedown would leave without
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;

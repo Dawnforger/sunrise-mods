@@ -1,9 +1,9 @@
-"""Tests for check_native_rows.py: python3 -m unittest discover -s scripts"""
+"""Tests for check_stable_rows.py: python3 -m unittest discover -s scripts"""
 import tempfile
 import unittest
 from pathlib import Path
 
-import check_native_rows as cn
+import check_stable_rows as cn
 
 ROW = '[[versions]]\nversion = "{}"\nfile = "trail_atlas-{}.smod"\n{}'
 
@@ -12,7 +12,7 @@ def entry(kind: str, *versions: tuple[str, str]) -> str:
     return f'id = "trail_atlas"\nkind = "{kind}"\n' + "".join(ROW.format(v, v, extra) for v, extra in versions)
 
 
-class NativeRows(unittest.TestCase):
+class StableRows(unittest.TestCase):
     def errors(self, base: str | None, head: str) -> list[str]:
         with tempfile.TemporaryDirectory() as directory:
             for side, text in (("base", base), ("head", head)):
@@ -37,10 +37,14 @@ class NativeRows(unittest.TestCase):
         # One published row doesn't cover two.
         self.assertEqual(len(self.errors(old, entry("native-mod", ("0.1.0", ""), ("0.1.0", "")))), 1)
 
-    def test_a_stable_native_version_and_other_kinds_pass(self):
+    def test_a_stable_version_passes(self):
         stable = entry("native-mod", ("0.2.0", 'sunrise = "26.3-0.1.0"\n'), ("0.1.0", ""))
         self.assertEqual(self.errors(entry("native-mod", ("0.1.0", "")), stable), [])
-        self.assertEqual(self.errors(None, entry("mod", ("0.1.0", ""))), [])
+
+    def test_every_kind_is_refused_and_only_a_native_mod_is_sent_to_sources(self):
+        [error] = self.errors(None, entry("resourcepack", ("0.1.0", "")))
+        self.assertIn("mods/trail_atlas.toml 0.1.0", error)
+        self.assertNotIn("sources/", error)
 
     def test_an_entry_that_does_not_parse_is_left_to_the_registry_tool(self):
         self.assertEqual(self.errors(None, 'kind = "native-mod"\n[[versions'), [])
