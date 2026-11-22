@@ -25,5 +25,9 @@ members = [
   { id = "jellyfish" },
   { id = "flying_fish" },
   { id = "seagulls" },
+  { id = "dung_beetles" },
+  { id = "ladybugs" },
+  { id = "phasmids" },
+  { id = "sporelins" },
   { id = "vanilla_bestiary" },
 ]
