@@ -29,6 +29,7 @@ owners = ["play-go"]
 license = "MIT"
 source = "https://github.com/play-go/corndelight-sunrise"
 icon = "icons/ported_corn_delight.png"
+screenshots = ["screenshots/ported_corn_delight/1-blocks.png"]
 categories = ["food", "worldgen"]
 tags = ["farmers-delight", "corn", "cooking", "crops", "farming", "delight", "addon"]
 
