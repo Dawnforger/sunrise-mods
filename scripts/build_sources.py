@@ -4,10 +4,13 @@
     python3 -I scripts/build_sources.py check <base> <head>      # a pull request: every entry, then GitHub for new or changed ones
     python3 -I scripts/build_sources.py build <registry> --out site/sources.json
 
+Set SUNRISE_REGISTRY_INDEX to the freshly built registry index when listings include icons.
 A listing says only that a public repository holds a Sunrise mod at a path on a branch or release. Nothing here
-builds or runs the mod. URLs are derived from `repo` and the resolved commit; an entry never supplies one.
+builds or runs the mod. An entry supplies no URLs.
 """
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -19,7 +22,9 @@ import urllib.request
 from pathlib import Path
 
 FOLDER = "sources"
-KEYS = {"id", "name", "summary", "repo", "repo_id", "manifest", "track"}
+REQUIRED = {"id", "name", "summary", "repo", "repo_id", "manifest", "track"}
+ALLOWED = REQUIRED | {"icon"}
+SITE = "https://sunrise-org.github.io/sunrise-mods/"
 MANIFEST = "sunrise-mod.toml"
 MAX_ENTRY = 16 * 1024
 MAX_FETCHED = 128 * 1024
@@ -63,8 +68,8 @@ def branch_name(ref, what: str) -> str:
 
 def entry(stem: str, data: dict) -> dict:
     """One entry, checked whole; the same fields, in the same types, as `sources.json` carries."""
-    if set(data) != KEYS:
-        missing, extra = sorted(KEYS - set(data)), sorted(set(data) - KEYS)
+    missing, extra = sorted(REQUIRED - data.keys()), sorted(data.keys() - ALLOWED)
+    if missing or extra:
         raise Invalid("; ".join(filter(None, [
             missing and f"missing {', '.join(missing)}",
             extra and f"unknown {', '.join(extra)}",
@@ -92,7 +97,7 @@ def entry(stem: str, data: dict) -> dict:
         branch_name(track["branch"], "track.branch")
     elif track.get("release") is not True:
         raise Invalid('track must be { branch = "<name>" } or { release = true }')
-    return {
+    parsed = {
         "id": id_,
         "name": plain(data["name"], 80, "name"),
         "summary": plain(data["summary"], 160, "summary"),
@@ -101,6 +106,12 @@ def entry(stem: str, data: dict) -> dict:
         "manifest": manifest,
         "track": dict(track),
     }
+    if "icon" in data:
+        icon = f"icons/{id_}.png"
+        if data["icon"] != icon:
+            raise Invalid(f"icon must be the registry-relative path {icon!r}")
+        parsed["icon"] = icon
+    return parsed
 
 
 def read(registry: Path) -> tuple[dict[str, tuple[bytes, dict]], list[str]]:
@@ -134,6 +145,38 @@ def read(registry: Path) -> tuple[dict[str, tuple[bytes, dict]], list[str]]:
         places[place] = where
         entries[parsed["id"]] = (raw, parsed)
     return entries, errors
+
+
+def check_icons(registry: Path, entries: dict[str, tuple[bytes, dict]], index: Path | None) -> list[str]:
+    """Reuse the registry build's image checks; its icon URL fingerprints the validated bytes."""
+    icons = {id_: parsed["icon"] for id_, (_, parsed) in entries.items() if "icon" in parsed}
+    if not icons:
+        return []
+    if index is None:
+        return ["source icons require SUNRISE_REGISTRY_INDEX to name the freshly built registry index"]
+    try:
+        checked = {p["id"]: p.get("icon") for p in json.loads(index.read_bytes())["projects"]}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+        return [f"cannot read the registry index for source icons: {e}"]
+    errors = []
+    for id_, icon in icons.items():
+        path = registry / icon
+        where = f"{FOLDER}/{id_}.toml: icon {icon}"
+        if path.parent.is_symlink() or path.is_symlink() or not path.is_file():
+            errors.append(f"{where} must exist as a regular file, not a link")
+            continue
+        if not checked.get(id_):
+            errors.append(f"{where} has no validated project icon in the registry index")
+            continue
+        try:
+            with path.open("rb") as file:
+                digest = hashlib.file_digest(file, "sha256").hexdigest()[:12]
+        except OSError as e:
+            errors.append(f"{where} could not be read: {e}")
+            continue
+        if checked[id_] != f"{SITE}{icon}?v={digest}":
+            errors.append(f"{where} does not match the validated project icon in the registry index")
+    return errors
 
 
 def document(entries: dict[str, tuple[bytes, dict]]) -> bytes:
@@ -235,9 +278,10 @@ def confirm(parsed: dict, api=gh_api, fetch=raw_file) -> str:
     return f"{repo} {said} → {commit[:12]}: {parsed['manifest']} is {parsed['id']}"
 
 
-def check(base: Path, head: Path, api=gh_api, fetch=raw_file) -> int:
+def check(base: Path, head: Path, api=gh_api, fetch=raw_file, *, index: Path | None = None) -> int:
     old, _ = read(base)
     new, errors = read(head)
+    errors.extend(check_icons(head, new, index))
     try:
         document(new)
     except Invalid as e:
@@ -257,8 +301,9 @@ def check(base: Path, head: Path, api=gh_api, fetch=raw_file) -> int:
     return 1 if errors else 0
 
 
-def build(registry: Path, out: Path) -> int:
+def build(registry: Path, out: Path, *, index: Path | None = None) -> int:
     entries, errors = read(registry)
+    errors.extend(check_icons(registry, entries, index))
     try:
         text = document(entries)
     except Invalid as e:
@@ -273,10 +318,12 @@ def build(registry: Path, out: Path) -> int:
 
 
 def main(args: list[str]) -> int:
+    index = os.environ.get("SUNRISE_REGISTRY_INDEX")
+    index = Path(index) if index else None
     if len(args) == 3 and args[0] == "check":
-        return check(Path(args[1]), Path(args[2]))
+        return check(Path(args[1]), Path(args[2]), index=index)
     if len(args) == 4 and args[0] == "build" and args[2] == "--out":
-        return build(Path(args[1]), Path(args[3]))
+        return build(Path(args[1]), Path(args[3]), index=index)
     sys.exit(__doc__)
 
 

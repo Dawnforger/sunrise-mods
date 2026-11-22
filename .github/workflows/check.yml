@@ -30,15 +30,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head
           persist-credentials: false
-      # The Nightly source list (README.md, "Source mods"): every entry's shape, then GitHub for new or changed
-      # ones. Until main has the script (the pull request that adds it), that pull request's own copy runs.
-      - name: Check the source list
-        run: |
-          set -o pipefail
-          script=base/scripts/build_sources.py
-          [ -f "$script" ] || script=head/scripts/build_sources.py
-          python3 -I "$script" check base head | tee sources.txt
-          { echo '### Source list'; echo '```'; cat sources.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: ./base/.github/actions/tool
         with:
           registry: base
@@ -94,6 +85,14 @@ jobs:
           --release "$RELEASE" --site "$SITE" --generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           ${{ steps.data.outcome == 'success' && '--releases registry-data/releases.json --sdk-data registry-data/sdk-data' || '' }}
           ${{ hashFiles('registry-data/nightly-build.json') != '' && '--nightly-build registry-data/nightly-build.json' || '' }}
+      # Check the Nightly source listings against the project icons just validated by registry build.
+      - name: Check the source list
+        env:
+          SUNRISE_REGISTRY_INDEX: index.json
+        run: |
+          set -o pipefail
+          python3 -I base/scripts/build_sources.py check base head | tee sources.txt
+          { echo '### Source list'; echo '```'; cat sources.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   # The registry's own scripts' tests, on the pull request's copy, with no token.
   scripts:
