@@ -8,9 +8,9 @@ There are two ways in, and they differ in what Sunrise checks.
   ([Source mods](#source-mods)). Only the listing is checked: its format, that the repository is public and is
   the one named, and that the mod's manifest parses. Your code is never reviewed. Players build it from source
   on their own computers, after the launcher tells them Sunrise hasn't reviewed the code and they agree.
-- **Stable releases: a reviewed entry.** Add `mods/<id>.toml` with a signed, prebuilt file for that stable
-  Sunrise release ([Submitting a project](#submitting-a-project)). CI checks the file, and a person reviews
-  the entry before it is listed.
+- **Stable releases: a reviewed entry.** Add `mods/<id>.toml` with a signed package for that stable Sunrise
+  release ([Submitting a project](#submitting-a-project)); prebuilt binaries beside it are optional. CI checks
+  the package, and a person reviews the entry before it is listed.
 
 A native mod's version goes in `mods/` only for a stable release: CI refuses one that names none, and its
 source listing is how Nightly and Dev players get it. A mod can have both.
