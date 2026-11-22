@@ -1,5 +1,26 @@
 # sunrise-mods
 
+## Listing your mod
+
+There are two ways in, and they differ in what Sunrise checks.
+
+- **Nightly and Dev: a source listing.** Add `sources/<id>.toml`, pointing at your public repository
+  ([Source mods](#source-mods)). Only the listing is checked: its format, that the repository is public and is
+  the one named, and that the mod's manifest parses. Your code is never reviewed. Players build it from source
+  on their own computers, after the launcher tells them Sunrise hasn't reviewed the code and they agree.
+- **Stable releases: a reviewed entry.** Add `mods/<id>.toml` with a signed package for that stable Sunrise
+  release ([Submitting a project](#submitting-a-project)); prebuilt binaries beside it are optional. CI checks
+  the package, and a person reviews the entry before it is listed.
+
+A native mod's version goes in `mods/` only for a stable release: CI refuses one that names none, and its
+source listing is how Nightly and Dev players get it. A mod can have both.
+
+What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY.md). The format of the index and the rules for
+an entry are in
+[registry-index.md](https://github.com/sunrise-org/sunrise/blob/main/docs/modding/src/reference/registry-index.md).
+
+## What this repository is
+
 Sunrise's mod registry. Each project has an entry here, and every change to an entry is a pull request that a person reviews.
 After a merge, CI publishes the index that the launcher and [playsunrise.net/mods](https://playsunrise.net/mods) read:
 
@@ -13,7 +34,7 @@ Beside it, CI publishes the Nightly source list: native mods a player's launcher
 The format of the index and the rules for an entry are set in Sunrise's own code and docs:
 [registry-index.md](https://github.com/sunrise-org/sunrise/blob/main/docs/modding/src/reference/registry-index.md)
 and `sunrise_mod_package::index::registry`. CI runs that code (`cargo sunrise-mod registry`) and doesn't
-reimplement it. What a listed project agrees to is in [MOD-POLICY.md](MOD-POLICY.md).
+reimplement it.
 
 ## Layout
 
@@ -30,6 +51,9 @@ The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
 
 ## Submitting a project
 
+This is the route for a stable Sunrise release, and for content-only mods and packs. A native mod for Nightly
+and Dev is listed by its source instead ([Source mods](#source-mods)).
+
 1. Check your package: `cargo sunrise-mod check my_mod.smod` (add `--key` and `--signature` if you sign it; a
    version for a stable Sunrise release must be signed).
 2. Fork this repository and add `mods/<id>.toml`, `icons/<id>.png` and at least one screenshot in
@@ -41,7 +65,8 @@ The `mods/`, `collections/` and `sources/` folders hold only `<id>.toml` files.
      that already lists unsigned versions can't add a `key` yet, because every listed version would then need
      a signature and a published version's row can't be changed: it waits for the registry's migration of the
      existing entries before it submits its first stable version.
-   - For any other version, link the exact file in the description (a GitHub release asset works) and give its
+   - A native mod's version that names no stable release is refused: list its source in `sources/<id>.toml`.
+   - For any other version (a content-only mod or a pack that names no stable release), link the exact file in the description (a GitHub release asset works) and give its
      SHA-256. A maintainer copies that file to this repository's `staging` release as `<sha256>.<extension>`,
      and the `check` workflow then tests it.
 4. A reviewer reads the change and merges it. The `publish` workflow then publishes the file as the release
@@ -86,7 +111,8 @@ are refused. The category lists are in
 never changes and is never removed: to take one down, add it to `revoked.toml`. A project's kind can't change.
 
 **Code mods.** A `mods/` entry doesn't follow a repository's releases (`repo = ...`). Every version is listed as its
-own file, as shown above. To list a native mod by its source instead, see [Source mods](#source-mods).
+own file, as shown above, and a native mod's version names the stable Sunrise release it was built for. Nightly
+and Dev players get a native mod from its source listing ([Source mods](#source-mods)).
 
 ## Collections
 
@@ -127,7 +153,7 @@ branch or release you name and builds it on their computer, after telling them t
 asking once for that mod. A listing is reviewed for its format and checked against GitHub when it is added or
 changed: the repository is public, its name and id match, the branch or release exists, and the mod's
 `sunrise-mod.toml` and its `Cargo.toml` parse at that commit. **The code is never reviewed or built here.** A
-listing can sit beside a `mods/` entry of the same mod; the launcher then also offers the reviewed file.
+listing can sit beside a `mods/` entry of the same mod, which carries its reviewed files for stable releases.
 
 To list one, open a pull request that adds `sources/<id>.toml`:
 
@@ -177,6 +203,8 @@ publishes the next one: `check` then warns and judges a pull request against the
     the registry holds its copy; an older version's file comes from `staging`. A stable native build's signed
     descriptor is fetched the same way, then the archives the verified descriptor names. A download stops at
     the registry tool's size limit, or at the size the descriptor gives an archive;
+  - `scripts/check_native_rows.py`: refuses a new or changed native-mod version in `mods/` that names no stable
+    release;
   - `registry review`: compares the pull request with `main`, and says which mods a takedown would leave without
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
