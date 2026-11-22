@@ -139,12 +139,16 @@ repo = "driftwood/trail-atlas"                  # GitHub owner/name exactly as G
 repo_id = 123456789                             # the repository's GitHub id: gh api repos/driftwood/trail-atlas --jq .id
 manifest = "mods/trail_atlas/sunrise-mod.toml"  # where the manifest is in the repository; "sunrise-mod.toml" at its root
 track = { branch = "main" }                     # or { release = true }: the latest published release, not pre-releases
+icon = "icons/trail_atlas.png"                  # optional: the project's icon in the registry
 ```
 
-- Every key is required and no others are allowed. The `Cargo.toml` beside the manifest is the mod's crate, and the
-  manifest needs a `[native]` table: a content-only mod is listed in `mods/` as a file instead.
+- Except for `icon`, every key is required and no others are allowed. The `Cargo.toml` beside the manifest is the
+  mod's crate, and the manifest needs a `[native]` table: a content-only mod is listed in `mods/` as a file instead.
+- `icon`, when present, is `icons/<id>.png` and must match the same project's validated icon in `index.json`:
+  a square PNG, 64–1024 px per side and at most 256 KiB. `sources.json` keeps `format: 1` and publishes the
+  path relative to the registry's Pages URL; it omits `icon` for listings without one.
 - One repository may hold several mods, each with its own listing and manifest path.
-- A listing has no URLs: the launcher builds every address from `repo` and the commit it resolves.
+- A listing has no URLs. The launcher resolves source addresses from `repo` and the resolved commit.
 - Removing a listing takes the mod off the list; players who built it keep their copy. Rename a moved repository
   in the listing (GitHub's new `owner/name`; its id stays the same).
 
@@ -169,8 +173,8 @@ publishes the next one: `check` then warns and judges a pull request against the
     a dependency;
   - `registry check`: tests each new file, and refuses one whose required dependencies the registry cannot supply;
   - `registry build`: builds the whole index the merge would publish.
-  Before those, `scripts/build_sources.py check` checks every `sources/` listing and asks GitHub about the new or
-  changed ones. A separate job runs the tests of the registry's own scripts.
+  After the build, `scripts/build_sources.py check` checks every `sources/` listing and asks GitHub about the new
+  or changed ones. A separate job runs the tests of the registry's own scripts.
 - **`publish`** runs on every push to `main`, and every three hours to refresh the release and Nightly
   metadata and counts. It downloads the listed files as `check` does and builds the index, which checks them;
   only then does it create the `<id>-<version>` release for each file still in `staging` or only in its
@@ -179,8 +183,9 @@ publishes the next one: `check` then warns and judges a pull request against the
   download count of each listed file's release asset and the stars of each project's source repository
   (`scripts/fetch_counts.py`), builds `index.json` again with them, writes `sources.json` from `sources/`
   (`scripts/build_sources.py build`, without asking GitHub), and deploys both to GitHub Pages together with
-  `icons/` and `screenshots/`. A count GitHub fails to answer (other than a repository that is gone) stops the
-  run before it deploys, so the last good index stays live.
+  `icons/` and `screenshots/`. For both `check` and `build`, `SUNRISE_REGISTRY_INDEX` points to the freshly built
+  `index.json` used to verify source icons. A count GitHub fails to answer (other than a repository that is
+  gone) stops the run before it deploys, so the last good index stays live.
   Both workflows keep the downloaded files in an Actions cache, so our own runs fetch only files they haven't
   seen and stay out of the download counts.
 - **`dco`**: every commit carries a `Signed-off-by:` line for its author.

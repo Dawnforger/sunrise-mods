@@ -1,4 +1,6 @@
 """Tests for build_sources.py: python3 -m unittest discover -s scripts"""
+import base64
+import hashlib
 import io
 import json
 import tempfile
@@ -10,6 +12,10 @@ import build_sources as bs
 
 COMMIT = "a" * 40
 TAG_OBJECT = "b" * 40
+ICON_PATH = "icons/trail_atlas.png"
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAAAAACPAi4CAAAAG0lEQVR4nO3BgQAAAADDoPlT3+AEVQEAAAB8AxBAAAFGOA0dAAAAAElFTkSuQmCC"
+)
 
 ENTRY = """id = "trail_atlas"
 name = "Trail Atlas"
@@ -90,6 +96,60 @@ class Entries(Case):
                 "track": {"branch": "main"},
             }],
         })
+
+    def registry_with_icon(self) -> tuple[Path, Path]:
+        registry = self.registry({"trail_atlas.toml": ENTRY + f'icon = "{ICON_PATH}"\n'})
+        (registry / "icons").mkdir()
+        (registry / ICON_PATH).write_bytes(PNG)
+        index = registry / "index.json"
+        digest = hashlib.sha256(PNG).hexdigest()[:12]
+        index.write_text(json.dumps({"projects": [{
+            "id": "trail_atlas",
+            "icon": f"https://sunrise-org.github.io/sunrise-mods/{ICON_PATH}?v={digest}",
+        }]}))
+        return registry, index
+
+    def test_a_valid_icon_publishes_its_relative_path(self):
+        registry, index = self.registry_with_icon()
+        out = registry / "sources.json"
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(bs.build(registry, out, index=index), 0)
+        self.assertEqual(json.loads(out.read_text())["sources"][0]["icon"], ICON_PATH)
+
+    def test_a_missing_icon_stops_the_build(self):
+        registry, index = self.registry_with_icon()
+        (registry / ICON_PATH).unlink()
+        out = registry / "sources.json"
+        with redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(bs.build(registry, out, index=index), 1)
+        self.assertIn(f"icon {ICON_PATH} must exist as a regular file", errors.getvalue())
+        self.assertFalse(out.exists())
+
+    def test_a_path_outside_the_project_icon_is_refused(self):
+        for path in [
+            "elsewhere/trail_atlas.png", "icons/other.png", "icons/../trail_atlas.png",
+            "icons\\trail_atlas.png", "icons/%74rail_atlas.png", "/icons/trail_atlas.png",
+            "https://example.com/icons/trail_atlas.png", True,
+        ]:
+            with self.subTest(path=path):
+                errors = self.errors({"trail_atlas.toml": ENTRY + f"icon = {json.dumps(path)}\n"})
+                self.assertIn(f"icon must be the registry-relative path '{ICON_PATH}'", errors[0])
+
+    def test_an_invalid_png_does_not_match_the_validated_icon(self):
+        registry, index = self.registry_with_icon()
+        (registry / ICON_PATH).write_bytes(b"not a PNG")
+        out = registry / "sources.json"
+        with redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(bs.build(registry, out, index=index), 1)
+        self.assertIn(f"icon {ICON_PATH} does not match the validated project icon", errors.getvalue())
+        self.assertFalse(out.exists())
+
+    def test_an_icon_without_a_validated_project_is_refused(self):
+        registry, index = self.registry_with_icon()
+        index.write_text('{"projects": []}')
+        with redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(bs.build(registry, registry / "sources.json", index=index), 1)
+        self.assertIn(f"icon {ICON_PATH} has no validated project icon", errors.getvalue())
 
     def test_sources_are_sorted_by_id(self):
         registry = self.registry({
