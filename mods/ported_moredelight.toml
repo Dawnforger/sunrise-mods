@@ -28,6 +28,7 @@ owners = ["play-go"]
 license = "MIT"
 source = "https://github.com/play-go/moredelight-sunrise"
 icon = "icons/ported_moredelight.png"
+screenshots = ["screenshots/ported_moredelight/1-items.png"]
 categories = ["food", "equipment"]
 tags = ["farmers-delight", "cooking", "knives", "foods", "delight", "addon"]
 
