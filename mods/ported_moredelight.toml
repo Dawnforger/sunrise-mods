@@ -5,7 +5,7 @@ summary = "More Delight for Sunrise: wooden and stone knives and 31 foods for Fa
 description = """
 An unofficial port of **More Delight** (Axperty, MIT), an add-on for Farmer's Delight, to Sunrise for Minecraft 26.3. It is a content-only mod: data and assets, no code.
 
-**Requires Farmer's Delight (Sunrise port), `ported_farmersdelight` `3.6.30-sunrise.1` exactly.** Install it first. This mod refuses to load without it or with another version.
+**Requires Farmer's Delight (Sunrise port) at the exact matching version:** `26.9.16-sunrise.2` needs `ported_farmersdelight` `3.6.30-sunrise.2` (Sunrise Nightly `9425651`), `26.9.16-sunrise.1` needs `3.6.30-sunrise.1` (Sunrise `2d81263`). Install it first. This mod refuses to load without it or with another version.
 
 ## What it adds
 
@@ -30,6 +30,16 @@ source = "https://github.com/play-go/moredelight-sunrise"
 icon = "icons/ported_moredelight.png"
 categories = ["food", "equipment"]
 tags = ["farmers-delight", "cooking", "knives", "foods", "delight", "addon"]
+
+[[versions]]
+version = "26.9.16-sunrise.2"
+published = "2026-11-22"
+game = "26.3"
+file = "ported_moredelight-26.9.16-sunrise.2.smod"
+sha256 = "b048bb8143f7efaff3454512cf1607a10df649e9703eb631c92b2f8cf96eb60c"
+changelog = """
+- For Farmer's Delight (Sunrise port) `3.6.30-sunrise.2` (Sunrise Nightly `9425651`). Content unchanged from `26.9.16-sunrise.1`.
+"""
 
 [[versions]]
 version = "26.9.16-sunrise.1"
