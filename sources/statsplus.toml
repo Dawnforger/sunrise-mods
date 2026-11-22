@@ -1,0 +1,7 @@
+id = "statsplus"
+name = "Statistics+"
+summary = "A clearer Statistics screen with tabs, search, sorting, grouping, units, and local snapshots. Fully offline."
+repo = "Zekrenlight/statistics-plus"
+repo_id = 1464968402
+manifest = "sunrise-mod.toml"
+track = { branch = "main" }
