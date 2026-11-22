@@ -9,7 +9,7 @@ On servers that run [Chunksmith](https://modrinth.com/mod/chunksmith), this mod 
 
 - When you join, the mod connects to Chunksmith (4.x or newer) and downloads the regions around you, over Chunksmith's download port or the game connection.
 - Every chunk is converted into Sunrise's far-terrain files. Block and biome numbers come from the game you're playing, so colours are right, new biomes included.
-- Chunks you have seen yourself are kept; a newer copy from the server replaces only what the mod wrote before. A far-terrain file the mod can't read whole is left untouched.
+- Each region is downloaded once and then kept, so the server doesn't send it to you again. The parts you see yourself are updated by Sunrise, and chunks you have seen are never overwritten. A far-terrain file the mod can't read whole is left untouched.
 - Everything downloaded is ready when you join: what couldn't be written while you played is converted when you leave, or at the next start before you join. New terrain shows after you rejoin.
 - No chat messages: the mod reports to `chunksmith-bridge/log.txt` in the game folder.
 
@@ -29,6 +29,7 @@ On servers that run [Chunksmith](https://modrinth.com/mod/chunksmith), this mod 
 `chunksmith-bridge/settings.txt` in the game folder:
 
 - `radius=8192`: how far around you to fetch, in blocks (512 to 16384). Every 512 × 512 region takes about 15 MB on disk: 8192 is up to ~12 GB, 16384 up to ~45 GB, if the server has that much.
+- `refresh=true`: download a region again when the server's copy changed.
 - `chat=true`: show the mod's messages in the chat too.
 
 How fine far terrain looks (cells merge past about 1 km, no small plants, opaque far water) is up to Sunrise's renderer; the data the mod writes is accurate to the block.
@@ -41,6 +42,14 @@ icon = "icons/chunksmith_bridge.png"
 categories = ["utility"]
 tags = ["client", "lod", "far-terrain", "chunksmith", "distant-horizons", "voxy"]
 screenshots = ["screenshots/chunksmith_bridge/1-far-terrain.jpg", "screenshots/chunksmith_bridge/2-coast-and-badlands.jpg"]
+
+[[versions]]
+version = "0.1.1"
+published = "2026-11-22"
+game = "26.3"
+file = "chunksmith_bridge-0.1.1.smod"
+sha256 = "31b1746c9df1c37440367464b42a43b6bef507b3b7446efd01d9360c12942fa4"
+changelog = "Each far-terrain region is downloaded once and then kept: a changed copy on the server is no longer fetched again (the parts you see are updated by Sunrise). refresh=true in settings.txt brings back re-downloading changed regions."
 
 [[versions]]
 version = "0.1.0"
