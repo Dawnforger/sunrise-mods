@@ -5,4 +5,3 @@ repo = "GeorgeDev22/sunrise-motion-blur"
 repo_id = 1463524125
 manifest = "sunrise-mod.toml"
 track = { branch = "main" }
-icon = "icons/motion_blur.png"

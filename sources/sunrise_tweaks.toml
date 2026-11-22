@@ -5,4 +5,3 @@ repo = "Flo-bot-png/sunrise-tweaks"
 repo_id = 1465959272
 manifest = "sunrise-mod.toml"
 track = { branch = "main" }
-icon = "icons/sunrise_tweaks.png"
