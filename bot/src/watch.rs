@@ -14,7 +14,7 @@ use crate::{
     registry::{self, ProjectEntry, Registry},
     release_payload::{self, Payload},
     schema::{
-        self, Asset, CalendarDate, HttpsUrl, PackagePath, ProjectId, Release, RepositoryName,
+        self, Asset, HttpsUrl, PackagePath, ProjectId, PublishedAt, Release, RepositoryName,
         Sha256, SignerWorkflowRef, Text,
     },
 };
@@ -37,42 +37,20 @@ fn tag_version(project: &schema::Project, tag: &str) -> Option<Version> {
 
 struct Approved<'a> {
     row: &'a Release,
-    release: &'a github::Release,
     published: OffsetDateTime,
 }
 
-fn latest_approved<'a>(
-    entry: &'a ProjectEntry,
-    releases: &'a [github::Release],
-) -> Result<Option<Approved<'a>>, String> {
-    let mut latest: Option<Approved<'a>> = None;
-    for row in entry.releases.values() {
-        let (release, published) = releases
-            .iter()
-            .find_map(|release| {
-                if release.tag_name != row.tag.as_str() {
-                    return None;
-                }
-                Some((release, release.published()?))
-            })
-            .ok_or_else(|| {
-                format!(
-                    "GitHub no longer reports the publication time of approved release {}",
-                    row.tag.as_str()
-                )
-            })?;
-        if latest
-            .as_ref()
-            .is_none_or(|last| (published, &row.version) > (last.published, &last.row.version))
-        {
-            latest = Some(Approved {
-                row,
-                release,
-                published,
-            });
-        }
-    }
-    Ok(latest)
+/// The approval order comes from the committed rows alone, so a release the author
+/// later takes down still orders the ones after it.
+fn latest_approved(entry: &ProjectEntry) -> Option<Approved<'_>> {
+    entry
+        .releases
+        .values()
+        .map(|row| Approved {
+            row,
+            published: row.published.time(),
+        })
+        .max_by(|a, b| (a.published, &a.row.version).cmp(&(b.published, &b.row.version)))
 }
 
 fn candidates<'a>(
@@ -159,13 +137,7 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
                 .projects
                 .get(id)
                 .ok_or("registered project is missing")?;
-            let approved = match latest_approved(entry, &releases) {
-                Ok(approved) => approved,
-                Err(reason) => {
-                    note(&mut summary, id.as_str(), &reason);
-                    continue;
-                }
-            };
+            let approved = latest_approved(entry);
             let mut candidates = candidates(entry, &releases, approved.as_ref());
             if approved.is_none() {
                 // Registration observes only the newest publication. Neither an unsigned or
@@ -267,7 +239,7 @@ pub fn check(
         return Err("registered repository is no longer public or has the wrong ID".into());
     }
     let releases = github.releases(Repo::Registered(live.id))?;
-    let approved = latest_approved(entry, &releases)?;
+    let approved = latest_approved(entry);
     let candidate = candidates(entry, &releases, approved.as_ref())
         .into_iter()
         .find(|c| c.version == claim.version && c.release.tag_name == claim.tag.as_str())
@@ -305,34 +277,59 @@ pub fn check(
         &out.join("source"),
         payload.package.is_native(),
     )?;
-    if let Some(approved) = approved {
-        let previous = approved.row;
-        let request = Request {
-            release: approved.release,
-            version: &previous.version,
-            ..request
-        };
-        let previous_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let commit = request.tag_commit().map_err(|error| error.to_string())?;
-        let (file, workflow) = asset(
-            &request,
-            &commit,
-            "smod",
-            "package.smod",
-            previous_dir.path(),
-            Some(Claim::Approved(&previous.file)),
-        )
-        .map_err(|error| error.to_string())?;
-        if file != previous.file || workflow != previous.workflow {
-            return Err(
-                "last approved package no longer matches its registry row and attestation".into(),
-            );
-        }
-        let smod = previous_dir.path().join("package.smod");
-        let package = Package::read(&smod)?;
-        release_payload::source(&smod, &out.join("previous"), package.is_native())?;
+    let Some(previous) = approved.map(|approved| approved.row) else {
+        return Ok(());
+    };
+    let Some(live) = downloadable(entry, previous, &releases) else {
+        // Nothing is left to compare against. The new release is verified in full above,
+        // so it still goes to review, and the report says the comparison is missing.
+        return fs::write(out.join("previous-unavailable"), "").map_err(|e| e.to_string());
+    };
+    let request = Request {
+        release: live,
+        version: &previous.version,
+        ..request
+    };
+    let previous_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let commit = request.tag_commit().map_err(|error| error.to_string())?;
+    let (file, workflow) = asset(
+        &request,
+        &commit,
+        "smod",
+        "package.smod",
+        previous_dir.path(),
+        Some(Claim::Approved(&previous.file)),
+    )
+    .map_err(|error| error.to_string())?;
+    if file != previous.file || workflow != previous.workflow {
+        return Err(
+            "last approved package no longer matches its registry row and attestation".into(),
+        );
     }
-    Ok(())
+    let smod = previous_dir.path().join("package.smod");
+    let package = Package::read(&smod)?;
+    release_payload::source(&smod, &out.join("previous"), package.is_native())
+}
+
+/// The approved release as the author's repository still publishes it: its tag, package
+/// and attestation. `None` once the author took any of them down.
+fn downloadable<'a>(
+    entry: &ProjectEntry,
+    approved: &Release,
+    releases: &'a [github::Release],
+) -> Option<&'a github::Release> {
+    let package = format!(
+        "{}-{}.smod",
+        entry.project.mod_id.as_str(),
+        approved.version
+    );
+    let bundle = format!("{package}.sigstore.json");
+    releases.iter().find(|release| {
+        release.tag_name == approved.tag.as_str()
+            && release.published().is_some()
+            && release.asset(&package).is_ok()
+            && release.asset(&bundle).is_ok()
+    })
 }
 
 fn project_path(id: &ProjectId) -> std::path::PathBuf {
@@ -618,9 +615,7 @@ fn prepared(
     let row = Release {
         version: request.version.clone(),
         tag: Text::parse(request.release.tag_name.clone())?,
-        published: CalendarDate::parse(
-            published.to_offset(time::UtcOffset::UTC).date().to_string(),
-        )?,
+        published: PublishedAt::of(published)?,
         sunrise,
         workflow: assets.workflow,
         file: assets.package,
@@ -689,7 +684,7 @@ mod tests {
         let releases = serde_json::from_str::<Vec<github::Release>>(RELEASES).unwrap();
         let id = ProjectId::parse("Ab3dE9xQ".into()).unwrap();
         let entry = &registry.projects[&id];
-        let approved = latest_approved(entry, &releases).unwrap();
+        let approved = latest_approved(entry);
         let remaining = candidates(entry, &releases, approved.as_ref());
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].release.tag_name, "v1.1.0");
@@ -704,28 +699,52 @@ mod tests {
     }
 
     #[test]
-    fn approved_watermark_and_previous_source_follow_publication_not_version_on_the_same_day() {
+    fn approval_order_follows_the_rows_publication_times_even_after_a_takedown() {
         let id = ProjectId::parse("Ab3dE9xQ".into()).unwrap();
         let mut registry = load(Path::new(FIXTURE)).unwrap();
         let entry = registry.projects.get_mut(&id).unwrap();
+        // The fixture approved 1.2.0, published at 12:00. 1.1.0 came an hour later.
         let mut later: Release =
             toml::from_str(&toml::to_string(entry.releases.values().next().unwrap()).unwrap())
                 .unwrap();
         later.version = Version::new(1, 1, 0);
         later.tag = Text::parse("v1.1.0".into()).unwrap();
+        later.published = PublishedAt::parse("2026-11-23T13:00:00Z".into()).unwrap();
         entry.releases.insert(later.version.clone(), later);
+        // The author has since deleted both approved releases from GitHub.
         let releases: Vec<github::Release> = serde_json::from_value(serde_json::json!([
-            {"tag_name":"v1.2.0","published_at":"2026-11-23T10:00:00Z","draft":false,"assets":[]},
-            {"tag_name":"v1.1.0","published_at":"2026-11-23T11:00:00Z","draft":false,"assets":[]},
-            {"tag_name":"v1.1.5","published_at":"2026-11-23T10:30:00Z","draft":false,"assets":[]},
-            {"tag_name":"v1.0.0","published_at":"2026-11-23T11:30:00Z","draft":false,"assets":[]}
+            {"tag_name":"v1.1.5","published_at":"2026-11-23T12:30:00Z","draft":false,"assets":[]},
+            {"tag_name":"v1.0.0","published_at":"2026-11-23T13:30:00Z","draft":false,"assets":[]}
         ]))
         .unwrap();
-        let previous = latest_approved(entry, &releases).unwrap().unwrap();
-        assert_eq!(previous.release.tag_name, "v1.1.0");
+        let previous = latest_approved(entry).unwrap();
+        assert_eq!(previous.row.tag.as_str(), "v1.1.0");
         let eligible = candidates(entry, &releases, Some(&previous));
         assert_eq!(eligible.len(), 1);
         assert_eq!(eligible[0].release.tag_name, "v1.0.0");
+    }
+
+    #[test]
+    fn the_previous_package_is_compared_only_while_its_tag_package_and_attestation_are_up() {
+        let registry = load(Path::new(FIXTURE)).unwrap();
+        let entry = &registry.projects[&ProjectId::parse("Ab3dE9xQ".into()).unwrap()];
+        let approved = entry.releases.values().next().unwrap();
+        let up = || live_release("1.2.0", "2026-11-23T12:00:00Z", None);
+        assert!(downloadable(entry, approved, &[up()]).is_some());
+        assert!(downloadable(entry, approved, &[]).is_none());
+        let other = live_release("1.3.0", "2026-11-24T12:00:00Z", None);
+        assert!(downloadable(entry, approved, &[other]).is_none());
+        let mut draft = up();
+        draft.draft = true;
+        assert!(downloadable(entry, approved, &[draft]).is_none());
+        for gone in ["wayfinder-1.2.0.smod", "wayfinder-1.2.0.smod.sigstore.json"] {
+            let mut release = up();
+            release.assets.retain(|asset| asset.name != gone);
+            assert!(
+                downloadable(entry, approved, &[release]).is_none(),
+                "{gone}"
+            );
+        }
     }
 
     const CURRENT: &str = "Example/Wayfinder-Renamed";
