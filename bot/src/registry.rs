@@ -450,6 +450,37 @@ fn read_collections(
 /// and after the change. Ownership is read from `base`, so a pull request cannot grant it to
 /// itself. Of `base` only the collection files and the members' `project.toml` are read: the
 /// base commit was checked by its own checker, and a pull request may change what a row holds.
+/// A pull request never takes a listed project off the registry by accident: a project with
+/// releases on `base` still has one on `head`, unless `head` pauses it.
+pub fn stay_listed(base: &Path, head: &Path) -> Result<(), String> {
+    let before = load(base).map_err(|e| e.join("\n"))?;
+    let after = load(head).map_err(|e| e.join("\n"))?;
+    let unlisted: Vec<String> = before
+        .projects
+        .iter()
+        .filter(|(_, was)| !was.releases.is_empty())
+        .filter(|(id, _)| {
+            after
+                .projects
+                .get(*id)
+                .is_none_or(|now| now.releases.is_empty() && !now.project.paused)
+        })
+        .map(|(id, _)| {
+            format!(
+                "registry/projects/{}: unlisted project: this change removes its last listed release. \
+                 A release of another kind replaces the earlier ones in its own release pull request; \
+                 to take the project off the registry, set `paused = true` in the same change",
+                id.as_str()
+            )
+        })
+        .collect();
+    if unlisted.is_empty() {
+        Ok(())
+    } else {
+        Err(unlisted.join("\n"))
+    }
+}
+
 pub fn collection_author(base: &Path, head: &Path, login: &str) -> Result<(), String> {
     let after = load(head).map_err(|e| e.join("\n"))?;
     let read = |path: PathBuf| match std::fs::read_to_string(&path) {

@@ -69,7 +69,7 @@ The registration service writes this file when the project is registered.
 The watcher adds one file per approved release. A merged release file is not edited except by a
 takedown. When a release's package is of another kind than the project (a content mod that gained
 code, or the reverse), the same pull request changes the project's `kind` and removes the project's
-earlier release files, so every listed release has the project's kind. The checker checks a checkout, not the history of that file.
+earlier release files, so every listed release has the project's kind. The earlier releases stay listed until that pull request merges: changing the `kind` and removing them ahead of it would take the project off the registry while the new release is in review. The pull request check refuses a change that removes a project's last release unless the same change sets `paused = true`. The checker checks a checkout, not the history of that file.
 
 | Field | Meaning |
 | --- | --- |
