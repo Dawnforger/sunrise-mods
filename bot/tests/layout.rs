@@ -1341,6 +1341,9 @@ fn a_listed_project_keeps_a_release_unless_the_change_pauses_it() {
         )
     };
     assert!(stay_listed().status.success());
+    // The base is read by name only: a base file this checker no longer accepts still compares.
+    fs::write(base.path().join(PROJECT), "kind = 7\n").unwrap();
+    assert!(stay_listed().status.success());
     // The listed release is removed ahead of the pull request that brings its replacement.
     fs::remove_file(head.path().join(RELEASE)).unwrap();
     let refused = stay_listed();

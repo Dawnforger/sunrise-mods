@@ -447,29 +447,37 @@ fn read_collections(
 }
 
 /// A pull request never takes a listed project off the registry by accident: a project with
-/// releases on `base` still has one on `head`, unless `head` pauses it.
+/// releases on `base` still has one on `head`, unless `head` pauses it. Of `base` only the names
+/// under `registry/projects/` are read, so a pull request that changes what a file holds is
+/// still compared.
 pub fn stay_listed(base: &Path, head: &Path) -> Result<(), String> {
-    let before = load(base).map_err(|e| e.join("\n"))?;
     let after = load(head).map_err(|e| e.join("\n"))?;
-    let unlisted: Vec<String> = before
-        .projects
-        .iter()
-        .filter(|(_, was)| !was.releases.is_empty())
-        .filter(|(id, _)| {
-            after
-                .projects
-                .get(*id)
-                .is_none_or(|now| now.releases.is_empty() && !now.project.paused)
-        })
-        .map(|(id, _)| {
-            format!(
+    let projects = base.join("registry/projects");
+    let mut unlisted = Vec::new();
+    for entry in std::fs::read_dir(&projects).map_err(|e| format!("{}: {e}", projects.display()))? {
+        let name = entry.map_err(|e| e.to_string())?.file_name();
+        let Some(id) = name
+            .to_str()
+            .and_then(|name| ProjectId::parse(name.into()).ok())
+        else {
+            continue;
+        };
+        let was_listed = std::fs::read_dir(projects.join(&name).join("releases"))
+            .is_ok_and(|mut releases| releases.next().is_some());
+        let gone = after
+            .projects
+            .get(&id)
+            .is_none_or(|now| now.releases.is_empty() && !now.project.paused);
+        if was_listed && gone {
+            unlisted.push(format!(
                 "registry/projects/{}: unlisted project: this change removes its last listed release. \
                  A release of another kind replaces the earlier ones in its own release pull request; \
                  to take the project off the registry, set `paused = true` in the same change",
                 id.as_str()
-            )
-        })
-        .collect();
+            ));
+        }
+    }
+    unlisted.sort();
     if unlisted.is_empty() {
         Ok(())
     } else {
