@@ -1,0 +1,21 @@
+# Release scanner
+
+Call `.github/workflows/scan.yml` from the registry's trusted release PR workflow, with `source-artifact` and optionally `previous-artifact`. Each is an artifact from the same run containing the unpacked release at its root. The caller verifies package integrity and unpacks it before uploading. `source-path` and `previous-path` are alternatives for directories already present in the trusted registry checkout, not paths shared from another job. Keep the workflow and its input selection on the trusted side of the PR.
+
+The `scan-summary` artifact contains `summary.md`: hard failures, warning subjects, then the release diff. A separate reporting job can append a `### Capabilities` section without access to the release. Do not treat a clean summary as a safety verdict; review the actual release and dependencies.
+
+- Non-crates.io sources, paths outside the package, stale lockfiles, and advisories with `[advisory].categories` containing `malicious` fail. An incomplete scan also fails. Other advisories and yanks are warnings; licences are not checked.
+- RustSec is fetched once and its commit is recorded. cargo-deny checks every registry entry in the lockfile before Cargo can fetch a removed crate, then uses the same advisory checkout and Cargo's local index for yanks. Cargo fetches locked crates.io dependencies from a clean working directory and Cargo home; it does not build anything or load the release's Cargo configuration.
+- Semgrep runs offline with no author-controlled ignore rules. It flags recognizable syntax in Rust files, not resolved behavior. Paths under `assets/` only suppress a few literal, recognizable asset reads; computed paths need review. Large encoded string flags start at 128 characters.
+- Cackle's non-build summary reports configured allowlists, not observed capabilities. Run capability checks separately in the isolated build job; neither this job nor its fixtures run a mod, build script or proc macro.
+
+For local checks with `semgrep`, `cargo-deny`, `cargo` and `rustc` on `PATH`:
+
+```sh
+semgrep --test --metrics=off --disable-version-check \
+  --config scanner/rules/rust.yml scanner/tests/flags/src/lib.rs
+python3 -I scanner/scan.py scanner/tests/flags --previous scanner/tests/prior \
+  --output target/scanner/summary.md
+```
+
+The runner test calls the reusable workflow with clean, flagged, git dependency, RustSec malware and stale-lock fixtures; the expected failures are asserted only in that test caller.

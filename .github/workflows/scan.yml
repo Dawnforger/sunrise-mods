@@ -1,0 +1,86 @@
+name: scan
+
+on:
+  workflow_call:
+    inputs:
+      source-artifact:
+        description: Artifact from this run containing one unpacked release at its root.
+        type: string
+      source-path:
+        description: Alternatively, a directory relative to the trusted registry checkout.
+        type: string
+      previous-artifact:
+        description: Optional artifact containing the unpacked last approved release.
+        type: string
+      previous-path:
+        description: Alternatively, a previous release directory relative to the trusted checkout.
+        type: string
+      fixture:
+        description: For scan-test.yml only; assert the outcome of a repository fixture.
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    # Fixtures took under four seconds per scan locally; leave room for cold tool pulls and real mod locks.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Release PRs must not supply the implementation that scans them.
+          ref: ${{ inputs.fixture != '' && github.sha || github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - name: Check call contract
+        shell: bash
+        env:
+          FIXTURE: ${{ inputs.fixture }}
+          SOURCE_ARTIFACT: ${{ inputs.source-artifact }}
+          SOURCE_PATH: ${{ inputs.source-path }}
+          PREVIOUS_ARTIFACT: ${{ inputs.previous-artifact }}
+          PREVIOUS_PATH: ${{ inputs.previous-path }}
+        run: |
+          if [[ -n "$FIXTURE" && "$GITHUB_WORKFLOW_REF" != "$GITHUB_REPOSITORY/.github/workflows/scan-test.yml@"* ]]; then
+            echo 'Fixture mode is reserved for scan-test.yml.' >&2
+            exit 1
+          fi
+          if [[ ( -z "$SOURCE_ARTIFACT" && -z "$SOURCE_PATH" ) || ( -n "$SOURCE_ARTIFACT" && -n "$SOURCE_PATH" ) || ( -n "$PREVIOUS_ARTIFACT" && -n "$PREVIOUS_PATH" ) ]]; then
+            echo 'Specify exactly one source input and at most one previous input.' >&2
+            exit 1
+          fi
+      - name: Install pinned scanner tools
+        run: bash scanner/install.sh "$RUNNER_TEMP/scan-tools"
+      - name: Test Semgrep rule positives and negatives
+        if: inputs.fixture == 'flags'
+        run: |
+          docker run --rm --pull=never --network=none --entrypoint=semgrep -v "$PWD/scanner:/scanner:ro" \
+            "$SCANNER_SEMGREP_IMAGE" --test --metrics=off --disable-version-check \
+            --config /scanner/rules/rust.yml /scanner/tests/flags/src/lib.rs
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: inputs.source-artifact != ''
+        with:
+          name: ${{ inputs.source-artifact }}
+          path: ${{ runner.temp }}/scan-input/source
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: inputs.previous-artifact != ''
+        with:
+          name: ${{ inputs.previous-artifact }}
+          path: ${{ runner.temp }}/scan-input/previous
+      - name: Scan without running release code
+        id: scan
+        shell: bash
+        env:
+          FIXTURE: ${{ inputs.fixture }}
+          SOURCE_PATH: ${{ inputs.source-path }}
+          PREVIOUS_PATH: ${{ inputs.previous-path }}
+          HAS_PREVIOUS_ARTIFACT: ${{ inputs.previous-artifact != '' }}
+        run: |
+          python3 -I scanner/workflow.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always() && steps.scan.outcome != 'skipped' && hashFiles('scan-output/summary.md') != ''
+        with:
+          name: scan-summary${{ inputs.fixture != '' && format('-{0}', inputs.fixture) || '' }}
+          path: scan-output/summary.md
+          if-no-files-found: error

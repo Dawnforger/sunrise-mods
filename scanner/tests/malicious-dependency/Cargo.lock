@@ -1,0 +1,12 @@
+version = 4
+
+[[package]]
+name = "scanner-fixture"
+version = "0.1.0"
+dependencies = ["jfrog_quotes"]
+
+[[package]]
+name = "jfrog_quotes"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0000000000000000000000000000000000000000000000000000000000000000"

@@ -1,0 +1,10 @@
+[package]
+name = "scanner-fixture"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["macros"]
+
+[dependencies]
+crossbeam-channel = "=0.5.14"

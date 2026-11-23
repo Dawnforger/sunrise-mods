@@ -1,0 +1,54 @@
+rules:
+  - id: processes
+    languages: [rust]
+    severity: WARNING
+    message: Review which command is launched and where its arguments come from.
+    pattern-regex: '\b(?:Command::new\s*\(|(?:libc|nix::unistd)::(?:exec\w*|fork|posix_spawn\w*)\s*\()'
+  - id: network
+    languages: [rust]
+    severity: WARNING
+    message: Review the remote endpoint, transmitted data and whether the mod needs this request.
+    pattern-regex: '\b(?:(?:TcpStream|TcpListener|UdpSocket|UnixStream|UnixListener)::(?:connect|bind)|(?:reqwest|ureq|hyper|curl|socket2)::\w+)\s*(?:::|\()'
+  - id: filesystem
+    languages: [rust]
+    severity: WARNING
+    message: Verify the path stays inside the game folder and the operation only touches intended files.
+    pattern-regex: >-
+      \b(?:(?:fs::(?:read|read_to_string)|(?:fs::)?File::open)\s*\((?!\s*"assets/(?:[\w-]+/)*[\w-][\w.-]*"\s*\))|(?:fs::(?:read_dir|read_link|write|remove\w*|create\w*|rename|copy)|File::create|OpenOptions::new)\s*\()
+  - id: credentials-and-browser-data
+    languages: [rust]
+    severity: WARNING
+    message: Check why this code refers to a credential store or browser profile.
+    pattern-regex: '(?i)"[^"\n]*(?:\.ssh[/\\]|\.aws[/\\]|\.npmrc|\.cargo[/\\]credentials|login data|local state|cookies\.sqlite|logins\.json|key[34]\.db|(?:chrome|chromium|firefox|brave)[/\\])[^"\n]*"'
+  - id: environment-secrets
+    languages: [rust]
+    severity: WARNING
+    message: Review environment variables read at build or run time and where their values go.
+    pattern-regex: '\b(?:env::(?:var|var_os|vars|vars_os)\s*\(|(?:option_env|env)!\s*\()'
+  - id: dynamic-libraries
+    languages: [rust]
+    severity: WARNING
+    message: Check how the library path is selected and what code the loaded library executes.
+    pattern-regex: '\b(?:Library::new|(?:libc::)?dlopen|LoadLibrary(?:Ex)?[AW]?)\s*\('
+  - id: raw-syscalls
+    languages: [rust]
+    severity: WARNING
+    message: Review the syscall or assembly and the privileges or data it uses.
+    pattern-regex: '\b(?:(?:libc::)?syscall\s*\(|(?:asm|global_asm)!\s*\()'
+  - id: encoded-blobs
+    languages: [rust]
+    severity: WARNING
+    message: Check what the large encoded string represents and how it is decoded or used.
+    pattern-regex: '"(?:[A-Fa-f0-9]{128,}|[A-Za-z0-9+/_-]{128,}={0,2})"'
+  - id: non-asset-include-bytes
+    languages: [rust]
+    severity: WARNING
+    message: Inspect the embedded file or computed path; this is not a recognized asset path.
+    patterns:
+      - pattern-regex: '\binclude_bytes!\s*\('
+      - pattern-not-regex: '\binclude_bytes!\s*\(\s*"(?:\.\./)*assets/(?:[\w-]+/)*[\w.-]+\.(?:png|jpg|jpeg|webp|ogg|wav|json|ttf|otf|mcmeta)"\s*\)'
+  - id: unsafe-code
+    languages: [rust]
+    severity: WARNING
+    message: Inspect the unsafe block, function or implementation for host effects and invariants.
+    pattern-regex: '\bunsafe\s+(?:\{|fn\b|impl\b|trait\b|extern\b)|\bunsafe\{'
