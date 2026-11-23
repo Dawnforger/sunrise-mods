@@ -13,6 +13,8 @@ use sunrise_mod_package::{
     page::{self, MAX_SCREENSHOT_BYTES},
 };
 
+use unicode_normalization::UnicodeNormalization;
+
 use crate::schema::{self, Dependency, Kind, Link, ModId, RelativePath, Screenshot, Slug, Text};
 
 pub struct Payload {
@@ -225,7 +227,7 @@ pub fn source(smod: &Path, dest: &Path, native: bool) -> Result<(), String> {
         {
             return Err(format!("{name}: unexpected file in content-only package"));
         }
-        if !portable_path(path.as_str()) || !paths.insert(name.to_uppercase()) {
+        if !portable_path(path.as_str()) || !paths.insert(alias_key(&name)) {
             return Err(format!(
                 "{name}: path is not portable or aliases another package entry"
             ));
@@ -235,11 +237,11 @@ pub fn source(smod: &Path, dest: &Path, native: bool) -> Result<(), String> {
             .parent()
             .ok_or("package file has no parent directory")?;
         for directory in parent.ancestors().take_while(|p| *p != dest) {
-            let key = directory.to_string_lossy().to_uppercase();
+            let key = alias_key(&directory.to_string_lossy());
             if let Some(prior) = dirs.insert(key, directory.to_owned())
                 && prior != directory
             {
-                return Err(format!("{name}: case aliases another package directory"));
+                return Err(format!("{name}: aliases another package directory"));
             }
         }
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -255,11 +257,18 @@ pub fn source(smod: &Path, dest: &Path, native: bool) -> Result<(), String> {
     }
     if paths
         .iter()
-        .any(|name| dirs.contains_key(&dest.join(name).to_string_lossy().to_uppercase()))
+        .any(|name| dirs.contains_key(&alias_key(&dest.join(name).to_string_lossy())))
     {
         return Err("package file aliases a directory".into());
     }
     Ok(())
+}
+
+/// One key for every spelling a case-insensitive or normalization-insensitive file system (APFS,
+/// NTFS) would open as the same path, so each host builds the tree the scanner read.
+fn alias_key(path: &str) -> String {
+    let upper = path.nfd().collect::<String>().to_uppercase();
+    upper.nfd().collect()
 }
 
 fn portable_path(path: &str) -> bool {
@@ -340,5 +349,39 @@ mod tests {
             assert!(!portable_path(name), "accepted {name}");
         }
         assert!(portable_path("src/control.rs"));
+    }
+
+    fn native_source(names: &[&str]) -> Result<(), String> {
+        let dir = tempfile::tempdir().unwrap();
+        let smod = dir.path().join("mod.smod");
+        let mut zip = zip::ZipWriter::new(File::create(&smod).unwrap());
+        for name in ["Cargo.lock"].iter().chain(names) {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+        }
+        zip.finish().unwrap();
+        source(&smod, &dir.path().join("out"), true)
+    }
+
+    #[test]
+    fn source_paths_cannot_differ_only_in_unicode_normalization_or_case() {
+        // "é" precomposed (U+00E9) against "e" with a combining acute (U+0301): one path on APFS.
+        let (composed, decomposed) = ("caf\u{e9}", "cafe\u{301}");
+        for names in [
+            // Two files.
+            [format!("src/{composed}.rs"), format!("src/{decomposed}.rs")],
+            // Two directories.
+            [format!("{composed}/a.rs"), format!("{decomposed}/b.rs")],
+            // A file against a directory.
+            [format!("src/{composed}"), format!("src/{decomposed}/a.rs")],
+            // The same three shapes still hold for case, with normalization mixed in.
+            [format!("src/{composed}.rs"), format!("src/CAFE\u{301}.rs")],
+            ["Lib/a.rs".to_string(), "lib/b.rs".to_string()],
+            ["src/mod".to_string(), "src/MOD/a.rs".to_string()],
+        ] {
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            assert!(native_source(&names).is_err(), "accepted {names:?}");
+        }
+        assert_eq!(native_source(&["src/caf\u{e9}.rs", "src/cafe.rs"]), Ok(()));
     }
 }
