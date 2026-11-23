@@ -5,4 +5,3 @@ repo = "Joeypc6/AE2-Sunrise"
 repo_id = 1468450230
 manifest = "sunrise-mod.toml"
 track = { branch = "main" }
-icon = "icons/ae2.png"
