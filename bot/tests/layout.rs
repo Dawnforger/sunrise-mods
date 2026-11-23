@@ -25,26 +25,37 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-ports")
 }
 
-fn checkout() -> TempDir {
-    fn copy(source: &Path, dest: &Path) -> io::Result<()> {
-        fs::create_dir_all(dest)?;
-        for entry in fs::read_dir(source)? {
-            let entry = entry?;
-            let target = dest.join(entry.file_name());
-            if entry.file_type()?.is_dir() {
-                copy(&entry.path(), &target)?;
-            } else {
-                fs::copy(entry.path(), target)?;
-            }
+fn copy(source: &Path, dest: &Path) -> io::Result<()> {
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let target = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
         }
-        Ok(())
     }
+    Ok(())
+}
+
+fn checkout() -> TempDir {
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target");
     fs::create_dir_all(&target).unwrap();
     let checkout = tempfile::tempdir_in(target).unwrap();
     copy(
         &fixture().join("registry"),
         &checkout.path().join("registry"),
+    )
+    .unwrap();
+    checkout
+}
+
+fn fit_checkout() -> TempDir {
+    let checkout = checkout();
+    copy(
+        &fixture().join("generated-fit"),
+        &checkout.path().join("registry/fit"),
     )
     .unwrap();
     checkout
@@ -59,13 +70,29 @@ fn run(args: &[&str], checkout: &Path) -> Output {
 }
 
 fn rejected(checkout: &Path, path: &str, expected: &str) {
-    let result = run(&["check", "."], checkout);
+    let generated = path.starts_with("registry/fit/");
+    let result = if generated {
+        run(
+            &[
+                "index",
+                ".",
+                "--serial",
+                "41",
+                "--out",
+                "output",
+                "--generated-fit",
+            ],
+            checkout,
+        )
+    } else {
+        run(&["check", "."], checkout)
+    };
     let stderr = String::from_utf8(result.stderr).unwrap();
     assert_eq!(result.status.code(), Some(1), "{stderr}");
     assert!(
-        stderr
-            .lines()
-            .any(|line| line.starts_with(&format!("{path}: ")) && line.contains(expected)),
+        stderr.lines().any(|line| (generated && line.contains(path)
+            || line.starts_with(&format!("{path}: ")))
+            && line.contains(expected)),
         "expected {path}: ... {expected}, got:\n{stderr}"
     );
 }
@@ -84,7 +111,11 @@ macro_rules! change {
     ($name:ident, $file:expr, $old:expr, $new:expr, $expected:expr) => {
         #[test]
         fn $name() {
-            let temp = checkout();
+            let temp = if $file == FIT {
+                fit_checkout()
+            } else {
+                checkout()
+            };
             replace(temp.path(), $file, $old, $new);
             rejected(temp.path(), $file, $expected);
         }
@@ -414,7 +445,11 @@ fn release_and_fit_require_exact_sunrise_build_names() {
         (FIT, "26.3-0.1.1", "not-a-build"),
         (FIT, "26.3-0.1.1", "dev-2026-11-23-notasha"),
     ] {
-        let temp = checkout();
+        let temp = if file == FIT {
+            fit_checkout()
+        } else {
+            checkout()
+        };
         replace(temp.path(), file, from, to);
         rejected(
             temp.path(),
@@ -422,9 +457,12 @@ fn release_and_fit_require_exact_sunrise_build_names() {
             "expected a stable Sunrise tag or an exact Nightly/Dev build ID",
         );
     }
-    let temp = checkout();
+    let temp = fit_checkout();
     replace(temp.path(), FIT, "26.3-0.1.1", "dev-2026-11-23-abcdef0");
-    assert!(run(&["check", "."], temp.path()).status.success());
+    assert_eq!(
+        index(temp.path())["projects"][0]["releases"][0]["fits"][1],
+        "dev-2026-11-23-abcdef0"
+    );
 }
 
 #[test]
@@ -809,7 +847,7 @@ fn unexpected_entries_are_rejected() {
 
 #[test]
 fn fit_filename_must_name_a_registered_project() {
-    let temp = checkout();
+    let temp = fit_checkout();
     fs::rename(
         temp.path().join(FIT),
         temp.path().join("registry/fit/Unknown0.toml"),
@@ -974,10 +1012,11 @@ fn diagnostics_escape_both_workflow_command_markers() {
 }
 
 fn index(checkout: &Path) -> Value {
-    let result = run(
-        &["index", ".", "--serial", "41", "--out", "output"],
-        checkout,
-    );
+    let mut args = vec!["index", ".", "--serial", "41", "--out", "output"];
+    if checkout.join("registry/fit").exists() {
+        args.push("--generated-fit");
+    }
+    let result = run(&args, checkout);
     assert!(
         result.status.success(),
         "{}",
@@ -988,7 +1027,7 @@ fn index(checkout: &Path) -> Value {
 
 #[test]
 fn full_index_matches_golden_with_both_providers() {
-    let temp = checkout();
+    let temp = fit_checkout();
     let expected: Value =
         serde_json::from_slice(&fs::read(fixture().join("index.json")).unwrap()).unwrap();
     let mut actual = index(temp.path());
@@ -1000,7 +1039,7 @@ fn full_index_matches_golden_with_both_providers() {
 
 #[test]
 fn project_without_a_release_does_not_need_a_page_and_is_not_listed() {
-    let temp = checkout();
+    let temp = fit_checkout();
     fs::remove_file(temp.path().join(RELEASE)).unwrap();
     fs::remove_file(temp.path().join(FIT)).unwrap();
     fs::remove_dir_all(temp.path().join(PAGE).parent().unwrap()).unwrap();
@@ -1030,4 +1069,24 @@ fn malformed_serial_is_a_usage_error() {
     );
     assert_eq!(output.status.code(), Some(2));
     assert!(!temp.path().join("output").exists());
+}
+
+#[test]
+fn shared_two_provider_fixture_passes_checkout_checker_without_generated_fit() {
+    let result = run(&["check", "."], &fixture());
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn committed_fit_directory_is_refused_by_checkout_checker() {
+    let temp = fit_checkout();
+    rejected(
+        temp.path(),
+        "registry/fit",
+        "fit is generated during publishing and must not be committed",
+    );
 }

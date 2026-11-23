@@ -784,6 +784,7 @@ dependencies = [
 name = "registry-bot"
 version = "0.1.0"
 dependencies = [
+ "minisign-verify",
  "percent-encoding",
  "semver",
  "serde",
