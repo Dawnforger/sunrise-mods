@@ -1336,3 +1336,36 @@ fn only_an_owner_of_every_member_on_the_base_commit_changes_a_collection() {
     assert!(author(head.path(), same.path(), "Example").0);
     assert!(!author(head.path(), same.path(), "stranger").0);
 }
+
+#[test]
+fn a_listed_project_keeps_a_release_unless_the_change_pauses_it() {
+    let base = checkout();
+    let head = checkout();
+    let stay_listed = || {
+        run(
+            &["stay-listed", base.path().to_str().unwrap(), "."],
+            head.path(),
+        )
+    };
+    assert!(stay_listed().status.success());
+    // The base is read by name only: a base file this checker no longer accepts still compares.
+    fs::write(base.path().join(PROJECT), "kind = 7\n").unwrap();
+    assert!(stay_listed().status.success());
+    // The listed release is removed ahead of the pull request that brings its replacement.
+    fs::remove_file(head.path().join(RELEASE)).unwrap();
+    let refused = stay_listed();
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success());
+    assert!(
+        stderr.contains("registry/projects/Ab3dE9xQ: unlisted project"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("Zz91kLmN"), "{stderr}");
+    replace(
+        head.path(),
+        PROJECT,
+        "registered = ",
+        "paused = true\nregistered = ",
+    );
+    assert!(stay_listed().status.success());
+}

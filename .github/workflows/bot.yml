@@ -46,6 +46,10 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
           persist-credentials: false
+      - name: A listed project keeps a release
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        run: cargo run --locked --manifest-path bot/Cargo.toml -- stay-listed base .
       - name: Only the owner of its mods changes a collection
         if: github.event_name == 'pull_request'
         working-directory: .
