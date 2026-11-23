@@ -261,12 +261,9 @@ build on Linux and compile-check on Apple-chip macOS and Windows x64. These jobs
 such a tool before enabling the watcher. Jobs that handle the package have no write permissions,
 secrets, persisted checkout token or Actions cache access.
 
-The Linux job does not start the game. The published native `cargo sunrise-mod run` needs prepared
-resources. `sunrise-prepare --server` can prepare the public dedicated-server resources, but a
-dedicated server cannot load client mods. Sunrise's client smoke needs private prepared Minecraft
-client resources, which are not available to these hosted jobs. There is no cackle report: the
-mod tool generates its own Cargo work tree and installs its own rustc wrapper for the SDK-native
-build; it does not expose a cackle entry point into that build.
+The release checks are static checks plus a compile: no job starts the game or loads the mod in
+it. There is no cackle report: the mod tool generates its own Cargo work tree and installs its own
+rustc wrapper for the SDK-native build; it does not expose a cackle entry point into that build.
 
 The check sets `registry-v2/release-check` to pending on the checked **PR head**, not on the
 workflow's `main` commit. A final job in the same run posts the current scanner summary and job
