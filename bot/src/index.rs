@@ -58,7 +58,7 @@ struct IndexRepository<'a> {
 #[derive(Serialize)]
 struct IndexRelease<'a> {
     version: &'a Version,
-    published: &'a CalendarDate,
+    published: &'a str,
     sunrise: &'a BuildName,
     workflow: &'a SignerWorkflowRef,
     fits: &'a [BuildName],
@@ -148,7 +148,7 @@ pub fn write(
                         let row = fit.and_then(|rows| rows.get(&release.version));
                         IndexRelease {
                             version: &release.version,
-                            published: &release.published,
+                            published: release.published.date(),
                             sunrise: &release.sunrise,
                             workflow: &release.workflow,
                             fits: row.map_or(&[], |row| row.fits.as_slice()),

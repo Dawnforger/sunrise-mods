@@ -2,7 +2,9 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sunrise_mod_package::index::stable_tag;
 use sunrise_release_sign::{Channel, is_build};
-use time::{Date, macros::format_description};
+use time::{
+    Date, OffsetDateTime, format_description::well_known::Rfc3339, macros::format_description,
+};
 use url::Url;
 
 macro_rules! text_type {
@@ -89,6 +91,34 @@ text_type!(
         .is_ok_and(|date| date.to_string() == s && !s.starts_with('-'))
     }
 );
+text_type!(
+    PublishedAt,
+    "expected a UTC time in YYYY-MM-DDTHH:MM:SSZ form",
+    |s: &str| OffsetDateTime::parse(s, &Rfc3339).is_ok_and(|time| PublishedAt::text(time) == s)
+);
+
+impl PublishedAt {
+    fn text(time: OffsetDateTime) -> String {
+        time.to_offset(time::UtcOffset::UTC)
+            .format(format_description!(
+                "[year repr:full]-[month]-[day]T[hour]:[minute]:[second]Z"
+            ))
+            .unwrap_or_default()
+    }
+
+    /// GitHub's publication time, to the second.
+    pub fn of(time: OffsetDateTime) -> Result<Self, &'static str> {
+        Self::parse(Self::text(time))
+    }
+
+    pub fn time(&self) -> OffsetDateTime {
+        OffsetDateTime::parse(&self.0, &Rfc3339).expect("validated when parsed")
+    }
+
+    pub fn date(&self) -> &str {
+        &self.0[..10]
+    }
+}
 text_type!(
     RepositoryName,
     "expected a GitHub owner/repository name",
@@ -270,7 +300,7 @@ pub struct Project {
 pub struct Release {
     pub version: Version,
     pub tag: Text,
-    pub published: CalendarDate,
+    pub published: PublishedAt,
     pub sunrise: BuildName,
     pub workflow: SignerWorkflowRef,
     pub file: Asset,
