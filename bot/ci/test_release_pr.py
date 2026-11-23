@@ -16,8 +16,14 @@ REPO = "sunrise-org/sunrise-mods"
 
 
 def pull(branch="release/Ab3dE9xQ/1.0.0", number=10, state="open"):
-    return {"number": number, "state": state, "user": {"login": release.BOT},
+    return {"number": number, "state": state, "merged_at": None, "user": {"login": release.BOT},
             "base": {"ref": "main"}, "head": {"repo": {"full_name": REPO}, "ref": branch, "sha": SHA}}
+
+
+def listing(pulls, branches=()):
+    """GitHub's lists as `rows` returns them: the release branches that exist, or the pull requests."""
+    refs = [{"ref": f"refs/heads/{branch}"} for branch in branches]
+    return Mock(side_effect=lambda endpoint: refs if endpoint.startswith("git/matching-refs/") else pulls)
 
 
 class ReleasePRTests(unittest.TestCase):
@@ -79,7 +85,7 @@ class ReleasePRTests(unittest.TestCase):
         summary = self.folder / "summary.md"
         api = Mock(side_effect=[{"object": {"sha": SHA}}, [{"workflow_runs": []}]])
         with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)), patch.object(release, "api", api), \
-             patch.object(release, "rows", side_effect=[[rejected, open_pr], [open_pr]]), \
+             patch.object(release, "rows", side_effect=[[rejected, open_pr], [{"ref": "refs/heads/" + rejected["head"]["ref"]}], [open_pr]]), \
              patch.object(release, "git", return_value=SHA.encode()), patch.object(release, "gh") as gh, \
              patch.object(release, "open_pr", side_effect=[release.CommandError("::error\n##[warning]"), None]) as publish:
             release.publish(self.folder)
@@ -147,7 +153,7 @@ class ReleasePRTests(unittest.TestCase):
         for statuses, expected in (([], 1), ([{"context": release.STATUS}], 0)):
             api = Mock(side_effect=[{"object": {"sha": "0" * 40}}, statuses])
             with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)), patch.object(release, "api", api), \
-                 patch.object(release, "rows", return_value=[rename]), \
+                 patch.object(release, "rows", listing([rename])), \
                  patch.object(release, "git", return_value=SHA.encode()), patch.object(release, "gh") as gh:
                 release.publish(self.folder)
             self.assertEqual(gh.call_count, expected)
@@ -155,12 +161,25 @@ class ReleasePRTests(unittest.TestCase):
                 gh.assert_called_once_with("workflow", "run", release.NOT_A_RELEASE, "--repo", REPO,
                                            "--ref", "main", "-f", "pr=12")
 
+    def test_a_closed_release_pr_blocks_its_version_only_while_its_branch_exists(self):
+        withdrawn, refused = "release/Ab3dE9xQ/1.0.0", "release/Bb3dE9xQ/1.0.0"
+        for branch in (withdrawn, refused):
+            (self.folder / "releases" / branch.removeprefix("release/")).mkdir(parents=True)
+        closed = [pull(withdrawn, number=10, state="closed"), pull(refused, number=11, state="closed")]
+        with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(self.folder / "summary.md")), \
+             patch.object(release, "api", return_value={"object": {"sha": SHA}}), \
+             patch.object(release, "rows", listing(closed, branches=[refused])), \
+             patch.object(release, "git", return_value=SHA.encode()), patch.object(release, "gh"), \
+             patch.object(release, "dispatch_runs", return_value=[]), patch.object(release, "open_pr") as open_pr:
+            release.publish(self.folder)
+        self.assertEqual([call.args[1] for call in open_pr.call_args_list], [withdrawn])
+
     def test_a_burst_of_open_release_prs_lists_the_dispatched_runs_once(self):
         first, second = pull("release/Ab3dE9xQ/1.0.0", number=10), pull("release/Bb3dE9xQ/1.0.0", number=11)
         api = Mock(return_value={"object": {"sha": "0" * 40}})
         runs = Mock(return_value=[{"display_title": f"Registry release PR 10 at {SHA}"}])
         with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(self.folder / "summary.md")), \
-             patch.object(release, "api", api), patch.object(release, "rows", return_value=[first, second]), \
+             patch.object(release, "api", api), patch.object(release, "rows", listing([first, second])), \
              patch.object(release, "git", return_value=SHA.encode()), patch.object(release, "gh") as gh, \
              patch.object(release, "dispatch_runs", runs):
             release.publish(self.folder)
