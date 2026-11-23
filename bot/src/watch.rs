@@ -188,7 +188,12 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
                     let root = out.join("releases").join(id.as_str());
                     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
                     let stage = tempfile::tempdir_in(&root).map_err(|e| e.to_string())?;
-                    write_release(&row, &payload, &stage.path().join(project_path(id)))?;
+                    write_release(
+                        &row,
+                        &payload,
+                        &stage.path().join(project_path(id)),
+                        kind_change(checkout, entry, &row)?.as_deref(),
+                    )?;
                     fs::rename(stage.path(), root.join(row.version.to_string()))
                         .map_err(|e| e.to_string())
                 })();
@@ -307,7 +312,12 @@ pub fn check(
     if let Some(missing) = unsupplied(&registry, id, &row) {
         return Err(missing);
     }
-    write_release(&row, &payload, &out.join("expected").join(project_path(id)))?;
+    write_release(
+        &row,
+        &payload,
+        &out.join("expected").join(project_path(id)),
+        kind_change(checkout, entry, &row)?.as_deref(),
+    )?;
     release_payload::source(
         &work.path().join("package.smod"),
         &out.join("source"),
@@ -394,9 +404,47 @@ fn categories(registry: &Registry) -> Result<page::Categories, String> {
     page::Categories::parse(&toml::to_string(&values).map_err(|e| e.to_string())?)
 }
 
-fn write_release(row: &Release, payload: &Payload, project: &Path) -> Result<(), String> {
+/// The project's `project.toml` with `row`'s kind, when `row` is the first release of another kind
+/// than the project's. Every release of a project has its kind, so the pull request that takes
+/// this file also removes the project's earlier releases.
+fn kind_change(
+    checkout: &Path,
+    entry: &ProjectEntry,
+    row: &Release,
+) -> Result<Option<String>, String> {
+    let project = &entry.project;
+    if row.kind == project.kind {
+        return Ok(None);
+    }
+    let name = |kind| {
+        toml::Value::try_from(kind)
+            .map(|value: toml::Value| value.to_string())
+            .map_err(|e| e.to_string())
+    };
+    let path = checkout
+        .join(project_path(&project.id))
+        .join("project.toml");
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let old = format!("kind = {}\n", name(project.kind)?);
+    if text.matches(&old).count() != 1 {
+        return Err("project.toml does not state its kind on one line of its own".into());
+    }
+    Ok(Some(
+        text.replace(&old, &format!("kind = {}\n", name(row.kind)?)),
+    ))
+}
+
+fn write_release(
+    row: &Release,
+    payload: &Payload,
+    project: &Path,
+    kind_change: Option<&str>,
+) -> Result<(), String> {
     let releases = project.join("releases");
     fs::create_dir_all(&releases).map_err(|e| e.to_string())?;
+    if let Some(text) = kind_change {
+        fs::write(project.join("project.toml"), text).map_err(|e| e.to_string())?;
+    }
     let text = toml::to_string_pretty(row).map_err(|e| e.to_string())?;
     fs::write(releases.join(format!("{}.toml", row.version)), text).map_err(|e| e.to_string())?;
     payload.write_page(&project.join("page"))
@@ -650,6 +698,11 @@ fn prepared(
     )?;
     let row = Release {
         version: request.version.clone(),
+        kind: if payload.package.is_native() {
+            schema::Kind::NativeMod
+        } else {
+            schema::Kind::Mod
+        },
         tag: Text::parse(request.release.tag_name.clone())?,
         published: PublishedAt::of(published)?,
         sunrise,
@@ -1191,12 +1244,43 @@ mod tests {
             dependencies: Vec::new(),
         };
         let out = tempfile::tempdir().unwrap();
-        write_release(&row, &payload, out.path()).unwrap();
+        write_release(&row, &payload, out.path(), None).unwrap();
         let written = fs::read_to_string(out.path().join("releases/1.2.0.toml")).unwrap();
         assert!(toml::from_str::<Release>(&written).unwrap() == row);
         assert_eq!(fs::read(out.path().join("page/icon.png")).unwrap(), icon);
         assert!(out.path().join("page/page.toml").is_file());
         assert!(!out.path().join("project.toml").exists());
+    }
+
+    #[test]
+    fn the_first_release_of_another_kind_changes_the_projects_kind() {
+        let registry = load(Path::new(FIXTURE)).unwrap();
+        let id = ProjectId::parse("Ab3dE9xQ".into()).unwrap();
+        let entry = &registry.projects[&id];
+        let fixture = Path::new(FIXTURE).join(project_path(&id));
+        let mut row: Release =
+            toml::from_str(&fs::read_to_string(fixture.join("releases/1.2.0.toml")).unwrap())
+                .unwrap();
+        assert!(
+            kind_change(Path::new(FIXTURE), entry, &row)
+                .unwrap()
+                .is_none(),
+            "a release of the project's own kind changes nothing"
+        );
+        row.kind = schema::Kind::Mod;
+        let changed = kind_change(Path::new(FIXTURE), entry, &row)
+            .unwrap()
+            .unwrap();
+        let before = fs::read_to_string(fixture.join("project.toml")).unwrap();
+        assert_eq!(
+            changed,
+            before.replace("kind = \"native-mod\"", "kind = \"mod\"")
+        );
+        assert_ne!(changed, before);
+        assert_eq!(
+            toml::from_str::<schema::Project>(&changed).unwrap().kind,
+            schema::Kind::Mod
+        );
     }
 
     #[test]

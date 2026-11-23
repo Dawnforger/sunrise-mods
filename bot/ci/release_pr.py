@@ -128,11 +128,21 @@ def verify(out):
     row = f"{root}/releases/{branch['version']}.toml"
     page = f"{root}/page"
     changed = git("diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", base, sha, "--").decode().split("\0")[:-1]
-    require(row in changed and all(name == row or name.startswith(page + "/") for name in changed),
+    # A release of another kind than the project's changes the project's kind and takes the place of every earlier
+    # release: project.toml is then compared with the regenerated one, and the head holds no other release row.
+    project_file = f"{root}/project.toml"
+    kind_change = project_file in changed
+    earlier = {name for name in changed if name.startswith(f"{root}/releases/") and name != row} if kind_change else set()
+    require(row in changed and all(name == row or name.startswith(page + "/") or name == project_file or name in earlier
+                                   for name in changed),
             "PR may only add its own release row and replace its own page")
     require(not git("ls-tree", "-z", base, "--", row), "PR may not edit an existing release row")
+    if kind_change:
+        rows = [entry.split(b"\t", 1)[1].decode()
+                for entry in git("ls-tree", "-rz", sha, "--", f"{root}/releases").split(b"\0")[:-1]]
+        require(rows == [row], "a release that changes the project's kind must remove every earlier release")
     actual = {}
-    for entry in git("ls-tree", "-rz", sha, "--", row, page).split(b"\0")[:-1]:
+    for entry in git("ls-tree", "-rz", sha, "--", row, page, *([project_file] if kind_change else [])).split(b"\0")[:-1]:
         header, name = entry.split(b"\t", 1)
         mode, kind, blob = header.decode().split()
         require((mode, kind) == ("100644", "blob"), "release and page may only contain regular non-executable files")
@@ -159,11 +169,22 @@ def install_tree(generated, work, branch):
     if match := RELEASE.fullmatch(branch):
         root = Path("registry/projects") / match["project"]
         row, page = root / "releases" / (match["version"] + ".toml"), root / "page"
+        # Present only when the release is of another kind than the project's.
+        project = root / "project.toml"
         found = {p.relative_to(generated).as_posix() for p in generated.rglob("*") if p.is_file()}
         require(row.as_posix() in found and (page / "page.toml").as_posix() in found
-                and all(name == row.as_posix() or name.startswith(page.as_posix() + "/") for name in found),
+                and all(name in (row.as_posix(), project.as_posix()) or name.startswith(page.as_posix() + "/")
+                        for name in found),
                 "watch artifact is outside its release row and page")
         require(not (work / row).exists(), "cannot alter a release already on main")
+        if project.as_posix() in found:
+            require((work / project).is_file(), "cannot change the kind of a project that is not on main")
+            shutil.copyfile(generated / project, work / project)
+            # Every release of a project has its kind: the earlier ones go with the change.
+            earlier = sorted(p.relative_to(work) for p in (work / root / "releases").glob("*.toml"))
+            for old in earlier:
+                (work / old).unlink()
+            git("add", "--", project, *earlier, cwd=work)
         (work / row).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(generated / row, work / row)
         if (work / page).exists():

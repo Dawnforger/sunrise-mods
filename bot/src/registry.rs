@@ -271,6 +271,9 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
                 .join(id.as_str())
                 .join("releases")
                 .join(format!("{}.toml", release.version));
+            if release.kind != entry.project.kind {
+                tree.problem(&path, "release kind does not match the project kind");
+            }
             for dependency in &release.dependencies {
                 if let Some(target) = &dependency.project {
                     match projects.get(target) {

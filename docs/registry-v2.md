@@ -67,11 +67,14 @@ The registration service writes this file when the project is registered.
 ### `registry/projects/<project>/releases/<version>.toml`
 
 The watcher adds one file per approved release. A merged release file is not edited except by a
-takedown. The checker checks a checkout, not the history of that file.
+takedown. When a release's package is of another kind than the project (a content mod that gained
+code, or the reverse), the same pull request changes the project's `kind` and removes the project's
+earlier release files, so every listed release has the project's kind. The checker checks a checkout, not the history of that file.
 
 | Field | Meaning |
 | --- | --- |
 | `version` | Package semantic version. It matches the filename without `.toml`. |
+| `kind` | `mod` or `native-mod`: what the package is, read from its manifest. It equals the project's `kind`. |
 | `tag` | Git tag. Use `v<version>` at the repository root and `<mod>/v<version>` in a subfolder. |
 | `published` | GitHub's publication time of the release, in UTC to the second (`2026-11-23T06:55:18Z`). The index publishes only its date. |
 | `sunrise` | The stable tag (for example `26.3-0.1.0`) or exact Nightly/Dev build ID (`<channel>-<YYYY-MM-DD>-<commit>`) the package was made for. A rolling channel name is not a build ID. |

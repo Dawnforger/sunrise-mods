@@ -41,11 +41,8 @@ pub fn read(
             "package manifest ID or version does not match the project and release tag".into(),
         );
     }
-    if !matches!(
-        (project.kind, package.is_native()),
-        (Kind::NativeMod, true) | (Kind::Mod, false)
-    ) {
-        return Err("package manifest kind does not match the registered project".into());
+    if !matches!(project.kind, Kind::Mod | Kind::NativeMod) {
+        return Err("registered project is not a mod".into());
     }
     // Validate resources and runtime data through the same readers as the game/tool.
     Content::read(smod, manifest)?;

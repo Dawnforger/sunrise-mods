@@ -843,6 +843,22 @@ fn project_must_be_listed_by_a_repository_file() {
 }
 
 #[test]
+fn every_release_has_its_projects_kind() {
+    let temp = checkout();
+    replace(
+        temp.path(),
+        "registry/projects/Zz91kLmN/project.toml",
+        "kind = \"mod\"",
+        "kind = \"native-mod\"",
+    );
+    rejected(
+        temp.path(),
+        "registry/projects/Zz91kLmN/releases/2.0.0-beta.1.toml",
+        "release kind does not match the project kind",
+    );
+}
+
+#[test]
 fn release_must_have_page() {
     let temp = checkout();
     fs::remove_dir_all(temp.path().join(PAGE).parent().unwrap()).unwrap();

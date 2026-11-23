@@ -49,6 +49,28 @@ class ReleasePRTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "may only add its own release row"):
                 release.verify(self.folder / "out")
 
+    def test_a_kind_change_must_remove_every_earlier_release_and_touch_nothing_else(self):
+        root = "registry/projects/Ab3dE9xQ"
+        row, project = f"{root}/releases/1.0.0.toml", f"{root}/project.toml"
+        entry = lambda name: f"100644 blob {'c' * 40}\t{name}".encode()
+        cases = (
+            # The head still lists an earlier release beside the new one.
+            ([row, project], [row, f"{root}/releases/0.9.0.toml"], "must remove every earlier release"),
+            # Another project's release is not this pull request's to delete.
+            ([row, project, "registry/projects/Zz91kLmN/releases/2.0.0.toml"], None, "may only add its own release row"),
+            # Without a kind change, deleting an earlier release is outside the pull request's scope.
+            ([row, f"{root}/releases/0.9.0.toml"], None, "may only add its own release row"),
+        )
+        for changed, head_rows, message in cases:
+            with self.subTest(message=message, changed=changed):
+                calls = [b"", SHA.encode(), b"b" * 40, "".join(name + "\0" for name in changed).encode()]
+                if head_rows is not None:
+                    calls += [b"", b"".join(entry(name) + b"\0" for name in head_rows)]
+                with patch.object(release, "api", return_value=pull()), patch.object(release, "git") as git:
+                    git.side_effect = calls
+                    with self.assertRaisesRegex(ValueError, message):
+                        release.verify(self.folder / "out")
+
     def test_rejection_and_publish_error_do_not_block_another_project_or_dispatch(self):
         rejected = pull(state="closed")
         open_pr = pull("release/Zz91kLmN/1.0.0", number=11)
@@ -88,6 +110,36 @@ class ReleasePRTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "not a set of registered repository files"):
                     release.install_tree(generated, work, "registry/refresh-repository-names")
                 (generated / stray).unlink()
+
+    def test_a_release_of_another_kind_replaces_the_project_file_and_the_earlier_releases(self):
+        generated, work = self.folder / "release", self.folder / "work"
+        root = Path("registry/projects/Ab3dE9xQ")
+        row, old, project = root / "releases/1.1.0.toml", root / "releases/1.0.0.toml", root / "project.toml"
+        for base, files in ((generated, {row: "new", root / "page/page.toml": "page", project: 'kind = "native-mod"\n'}),
+                            (work, {old: "old", root / "page/page.toml": "before", project: 'kind = "mod"\n'})):
+            for name, text in files.items():
+                (base / name).parent.mkdir(parents=True, exist_ok=True)
+                (base / name).write_text(text)
+        with patch.object(release, "git") as git:
+            release.install_tree(generated, work, "release/Ab3dE9xQ/1.1.0")
+        self.assertEqual((work / project).read_text(), 'kind = "native-mod"\n')
+        self.assertFalse((work / old).exists())
+        self.assertEqual((work / row).read_text(), "new")
+        git.assert_any_call("add", "--", project, old, cwd=work)
+        # Without a project file in the artifact, the earlier release and the project stay as they are.
+        (generated / project).unlink()
+        (generated / row).rename(generated / root / "releases/1.2.0.toml")
+        with patch.object(release, "git"):
+            release.install_tree(generated, work, "release/Ab3dE9xQ/1.2.0")
+        self.assertTrue((work / row).exists())
+        self.assertEqual((work / project).read_text(), 'kind = "native-mod"\n')
+        # Another project's file is never taken.
+        stray = generated / "registry/projects/Zz91kLmN/project.toml"
+        stray.parent.mkdir(parents=True)
+        stray.write_text("")
+        (work / root / "releases/1.2.0.toml").unlink()
+        with self.assertRaisesRegex(ValueError, "outside its release row and page"):
+            release.install_tree(generated, work, "release/Ab3dE9xQ/1.2.0")
 
     def test_a_maintenance_pr_is_sent_to_the_non_release_classifier_once(self):
         rename = pull("registry/refresh-repository-names", number=12)

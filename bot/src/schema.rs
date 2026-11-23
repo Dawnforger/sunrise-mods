@@ -301,6 +301,8 @@ pub struct Project {
 #[serde(deny_unknown_fields)]
 pub struct Release {
     pub version: Version,
+    /// What the release's package is. Every release of a project has the project's `kind`.
+    pub kind: Kind,
     pub tag: Text,
     pub published: PublishedAt,
     pub sunrise: BuildName,
