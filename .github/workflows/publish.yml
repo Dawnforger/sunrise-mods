@@ -341,6 +341,36 @@ jobs:
         with:
           artifact_name: ${{ needs.assemble.outputs.pages_artifact }}
 
+  # Pages can report a deployment and still serve the previous files. Readers fetch one file,
+  # so they never see a mixed pair; this makes a site that did not take the deployment a red run.
+  confirm-live:
+    needs: [assemble, deploy]
+    if: always() && !cancelled() && needs.deploy.result == 'success' && needs.assemble.outputs.snapshot != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/registry-v2
+            bot/src/index_signature.rs
+            bot/verifier
+            registry/index-key.pub
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.assemble.outputs.snapshot }}
+          path: deployed
+      - name: Wait until the site serves the deployed signed index
+        run: |
+          set -euo pipefail
+          cargo build --locked --manifest-path bot/verifier/Cargo.toml \
+            --target-dir "$RUNNER_TEMP/index-verifier" --release
+          python3 -I .github/registry-v2/live.py --bot "$RUNNER_TEMP/index-verifier/release/registry-bot" \
+            --confirm-live deployed
+
   # The next deploy's guard reads this when the bulk snapshot artifact cannot be fetched.
   record-deployment:
     needs: deploy

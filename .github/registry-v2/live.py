@@ -18,6 +18,11 @@ LIMITS = {
     "index.json": 256 << 20,  # Existing mod tool's bounded::MAX_CATALOG.
     "index.json.minisig": 16 << 20,  # Existing registry fetch_releases.py metadata bound.
 }
+# The one file readers fetch: the signature file's bytes, then the index's exact bytes. Pages
+# replaces files one by one behind a cache, so two files can come from two different publishes.
+BUNDLE = "index.signed"
+# The `Cache-Control: max-age=600` GitHub Pages sends: how long an edge may serve the old file.
+PAGES_CACHE_SECONDS = 600
 ICON_LIMIT = 256 << 10  # sunrise_mod_package::icon::MAX_ICON.
 SCREENSHOT_LIMIT = 5 << 20  # sunrise_mod_package::page::MAX_SCREENSHOT_BYTES.
 PROJECT = re.compile(r"[0-9A-Za-z]{8}")  # Same Modrinth ID rule as registry-bot.
@@ -89,6 +94,31 @@ def verify(root, key, bot):
                 raise ValueError("signed image path is not content-addressed under its project")
             refs[name] = (min(refs.get(name, (limit, ""))[0], limit), image[1])
     return Index(serial, body, refs)
+
+
+def bundle(root):
+    return b"".join((root / name).read_bytes() for name in ("index.json.minisig", "index.json"))
+
+
+def confirm_live(root, key, bot, pause=time.sleep):
+    # A deployment can report success while the site still serves the previous files. Say so
+    # in the run, not in a reader: wait until the fetched file is this snapshot's, byte for byte.
+    verify(root, key, bot)
+    expected = bundle(root)
+    if (root / BUNDLE).read_bytes() != expected:
+        raise ValueError("the deployed snapshot's bundle is not its own index and signature")
+    with tempfile.TemporaryDirectory(dir=root.parent) as work:
+        file = Path(work) / BUNDLE
+        seen = "nothing"
+        for _ in range(2 * PAGES_CACHE_SECONDS // 30):
+            try:
+                if download(BUNDLE, file, sum(LIMITS.values())) and file.read_bytes() == expected:
+                    return
+                seen = "another publish's file"
+            except ERRORS as error:
+                seen = reason(error)
+            pause(30)
+    raise ValueError(f"LIVE_V2_NOT_DEPLOYED: the site does not serve the deployed signed index ({seen})")
 
 
 def check_images(root, index, fetch=False):
@@ -212,7 +242,7 @@ def check_archive(root, index):
         check=True, capture_output=True, text=True,
     )
     members = set(result.stdout.splitlines())
-    if any(f"./v2/{name}" not in members for name in (*LIMITS, *index.images)):
+    if any(f"./v2/{name}" not in members for name in (*LIMITS, BUNDLE, *index.images)):
         raise ValueError("Pages archive would omit signed v2 files")
 
 
@@ -224,6 +254,7 @@ def stage(site, work, root, index):
             file = target / name
             file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(root / name, file)
+        (target / BUNDLE).write_bytes(bundle(root))
         check_archive(target.parent, index)
         shutil.move(target, site / "v2")
 
@@ -281,6 +312,8 @@ def guard_deploy(root, key, bot, carried):
         return None
     candidate = verify(root, key, bot)
     check_images(root, candidate)
+    if (root / BUNDLE).read_bytes() != bundle(root):
+        raise ValueError("the bundle is not this snapshot's index and signature")
     with tempfile.TemporaryDirectory(dir=root.parent) as work:
         live_root = Path(work) / "live"
         try:
@@ -328,6 +361,7 @@ def main():
     action.add_argument("--out", type=Path, help="fetch only the verified live index and signature")
     action.add_argument("--assemble", type=Path, metavar="SITE")
     action.add_argument("--guard-deploy", type=Path, metavar="SNAPSHOT")
+    action.add_argument("--confirm-live", type=Path, metavar="SNAPSHOT")
     parser.add_argument("--key", type=Path, default=Path("registry/index-key.pub"))
     parser.add_argument("--bot", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, default=Path("candidate"))
@@ -345,6 +379,9 @@ def main():
             carried = assemble(args.assemble, args.candidate, args.pages, args.key, args.bot)
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                 print(f"carried={str(carried).lower()}", file=output)
+        elif args.confirm_live is not None:
+            if args.key.is_file():
+                confirm_live(args.confirm_live, args.key, args.bot)
         else:
             candidate = guard_deploy(args.guard_deploy, args.key, args.bot, args.carried)
             if candidate is not None:
