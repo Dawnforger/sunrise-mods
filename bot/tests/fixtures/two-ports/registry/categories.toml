@@ -1,0 +1,9 @@
+[[category]]
+id = "adventure"
+icon = "compass"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "utility"
+icon = "wrench"
+kinds = ["mod", "native-mod"]

@@ -1,5 +1,7 @@
 # sunrise-mods
 
+A [new registry](docs/registry-v2.md) is being built beside this one. It is not live yet; the registry below is unchanged.
+
 ## Listing your mod
 
 There are two ways in, and they differ in what Sunrise checks.

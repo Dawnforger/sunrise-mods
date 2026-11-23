@@ -1,0 +1,17 @@
+[package]
+name = "registry-bot"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+percent-encoding = "2.3"
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sunrise-mod-package = { git = "https://github.com/sunrise-org/sunrise.git", rev = "da638783c94804b382acefb7f3ca5b7ab94e8936", default-features = false, features = ["index"] }
+sunrise-release-sign = { git = "https://github.com/sunrise-org/sunrise.git", rev = "da638783c94804b382acefb7f3ca5b7ab94e8936" }
+tempfile = "3"
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+toml = "1"
+url = "2"

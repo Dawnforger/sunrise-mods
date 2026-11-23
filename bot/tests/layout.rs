@@ -1,0 +1,1033 @@
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    process::{Command, Output},
+};
+
+use serde_json::Value;
+use tempfile::TempDir;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+const WATCHED: &str = "registry/watched.toml";
+const WORKFLOW: &str = "registry/release-workflow.toml";
+const CATEGORIES: &str = "registry/categories.toml";
+const REVOKED: &str = "registry/revoked.toml";
+const FIT: &str = "registry/fit/Ab3dE9xQ.toml";
+const PROJECT: &str = "registry/projects/Ab3dE9xQ/project.toml";
+const PROJECT_2: &str = "registry/projects/Zz91kLmN/project.toml";
+const PAGE: &str = "registry/projects/Ab3dE9xQ/page/page.toml";
+const ICON: &str = "registry/projects/Ab3dE9xQ/page/icon.png";
+const SCREENSHOT: &str = "registry/projects/Ab3dE9xQ/page/map.png";
+const RELEASE: &str = "registry/projects/Ab3dE9xQ/releases/1.2.0.toml";
+const RELEASE_2: &str = "registry/projects/Zz91kLmN/releases/2.0.0-beta.1.toml";
+
+fn fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-ports")
+}
+
+fn checkout() -> TempDir {
+    fn copy(source: &Path, dest: &Path) -> io::Result<()> {
+        fs::create_dir_all(dest)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let target = dest.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                copy(&entry.path(), &target)?;
+            } else {
+                fs::copy(entry.path(), target)?;
+            }
+        }
+        Ok(())
+    }
+    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target");
+    fs::create_dir_all(&target).unwrap();
+    let checkout = tempfile::tempdir_in(target).unwrap();
+    copy(
+        &fixture().join("registry"),
+        &checkout.path().join("registry"),
+    )
+    .unwrap();
+    checkout
+}
+
+fn run(args: &[&str], checkout: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_registry-bot"))
+        .current_dir(checkout)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn rejected(checkout: &Path, path: &str, expected: &str) {
+    let result = run(&["check", "."], checkout);
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    assert_eq!(result.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.starts_with(&format!("{path}: ")) && line.contains(expected)),
+        "expected {path}: ... {expected}, got:\n{stderr}"
+    );
+}
+
+fn replace(checkout: &Path, file: &str, old: &str, new: &str) {
+    let path = checkout.join(file);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains(old),
+        "fixture {file} does not contain {old:?}"
+    );
+    fs::write(path, text.replacen(old, new, 1)).unwrap();
+}
+
+macro_rules! change {
+    ($name:ident, $file:expr, $old:expr, $new:expr, $expected:expr) => {
+        #[test]
+        fn $name() {
+            let temp = checkout();
+            replace(temp.path(), $file, $old, $new);
+            rejected(temp.path(), $file, $expected);
+        }
+    };
+}
+
+change!(
+    unknown_watched_field,
+    WATCHED,
+    "[[repository]]",
+    "extra = true\n[[repository]]",
+    "unknown field"
+);
+change!(
+    unknown_repository_field,
+    WATCHED,
+    "name =",
+    "extra = true\nname =",
+    "unknown field"
+);
+change!(
+    unknown_package_field,
+    WATCHED,
+    "path = \".\"",
+    "extra = true\npath = \".\"",
+    "unknown field"
+);
+change!(
+    unknown_category_field,
+    CATEGORIES,
+    "id =",
+    "extra = true\nid =",
+    "unknown field"
+);
+change!(
+    unknown_project_field,
+    PROJECT,
+    "id =",
+    "extra = true\nid =",
+    "unknown field"
+);
+change!(
+    unknown_release_field,
+    RELEASE,
+    "version =",
+    "extra = true\nversion =",
+    "unknown field"
+);
+change!(
+    unknown_asset_field,
+    RELEASE,
+    "[page]",
+    "extra = true\n[page]",
+    "unknown field"
+);
+change!(
+    unknown_dependency_field,
+    RELEASE,
+    "required =",
+    "extra = true\nrequired =",
+    "unknown field"
+);
+change!(
+    unknown_page_field,
+    PAGE,
+    "name =",
+    "tags = []\nname =",
+    "unknown field"
+);
+change!(
+    unknown_screenshot_field,
+    PAGE,
+    "caption =",
+    "extra = true\ncaption =",
+    "unknown field"
+);
+change!(
+    unknown_fit_container_field,
+    FIT,
+    "[[release]]",
+    "extra = true\n[[release]]",
+    "unknown field"
+);
+change!(
+    unknown_revocations_container_field,
+    REVOKED,
+    "[[revoked]]",
+    "extra = true\n[[revoked]]",
+    "unknown field"
+);
+change!(
+    unknown_fit_field,
+    FIT,
+    "fits =",
+    "extra = true\nfits =",
+    "unknown field"
+);
+change!(
+    unknown_revocation_field,
+    REVOKED,
+    "reason =",
+    "extra = true\nreason =",
+    "unknown field"
+);
+change!(
+    unknown_workflow_field,
+    WORKFLOW,
+    "uses =",
+    "extra = true\nuses =",
+    "unknown field"
+);
+
+change!(
+    bad_project_id_length,
+    PROJECT,
+    "Ab3dE9xQ",
+    "short",
+    "8-character base62"
+);
+change!(
+    bad_project_id_character,
+    PROJECT,
+    "Ab3dE9xQ",
+    "Ab3dE9_Q",
+    "8-character base62"
+);
+change!(
+    bad_slug,
+    PROJECT,
+    "slug = \"wayfinder\"",
+    "slug = \"UPPER\"",
+    "expected a slug"
+);
+change!(
+    bad_mod_id,
+    PROJECT,
+    "mod = \"wayfinder\"",
+    "mod = \"Way-Finder\"",
+    "expected an in-game ID"
+);
+change!(
+    bad_kind,
+    PROJECT,
+    "native-mod",
+    "collection",
+    "unknown variant"
+);
+change!(bad_repo_id, PROJECT, "123456789", "0", "nonzero");
+change!(
+    bad_repository_name,
+    WATCHED,
+    "example/wayfinder",
+    "https://github.com/example/wayfinder",
+    "owner/repository"
+);
+change!(
+    bad_package_path,
+    WATCHED,
+    "mods/wayfinder",
+    "mods/../wayfinder",
+    "PackagePath"
+);
+change!(
+    absolute_package_path,
+    WATCHED,
+    "mods/wayfinder",
+    "/wayfinder",
+    "PackagePath"
+);
+change!(
+    bad_registered_date,
+    PROJECT,
+    "2026-11-22",
+    "2026-02-30",
+    "calendar date"
+);
+change!(
+    bad_published_date,
+    RELEASE,
+    "2026-11-23",
+    "today",
+    "calendar date"
+);
+change!(
+    bad_revocation_date,
+    REVOKED,
+    "2026-11-25",
+    "today",
+    "calendar date"
+);
+change!(
+    bad_version,
+    RELEASE,
+    "version = \"1.2.0\"",
+    "version = \"latest\"",
+    "version"
+);
+change!(
+    bad_workflow_tag,
+    WORKFLOW,
+    "release-v1",
+    "main",
+    "release-v<number>"
+);
+change!(
+    bad_workflow_repository,
+    WORKFLOW,
+    "sunrise-org/sunrise-mods",
+    "other/sunrise-mods",
+    "registry release workflow"
+);
+change!(
+    bad_workflow_file,
+    WORKFLOW,
+    "release.yml",
+    "different.yml",
+    "registry release workflow"
+);
+change!(
+    project_workflow_mismatch,
+    PROJECT,
+    "release.yml",
+    "different.yml",
+    "workflow must match"
+);
+change!(
+    bad_root_tag,
+    RELEASE,
+    "tag = \"v1.2.0\"",
+    "tag = \"wayfinder/v1.2.0\"",
+    "tag must be v1.2.0"
+);
+change!(
+    bad_subfolder_tag,
+    RELEASE_2,
+    "tag = \"wayfinder/v2.0.0-beta.1\"",
+    "tag = \"v2.0.0-beta.1\"",
+    "tag must be wayfinder/v2.0.0-beta.1"
+);
+#[test]
+fn release_requires_its_exact_versioned_signer_workflow() {
+    const SIGNER: &str =
+        "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1";
+    for (signer, expected) in [
+        (None, "missing field `workflow`"),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/heads/release-v1"),
+            "expected a signer workflow path",
+        ),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/release.yml@release-v1"),
+            "expected a signer workflow path",
+        ),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/other.yml@refs/tags/release-v1"),
+            "signer workflow path must match",
+        ),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v"),
+            "expected a signer workflow path",
+        ),
+    ] {
+        let temp = checkout();
+        replace(
+            temp.path(),
+            RELEASE,
+            &format!("workflow = \"{SIGNER}\"\n"),
+            &signer.map_or_else(String::new, |s| format!("workflow = \"{s}\"\n")),
+        );
+        rejected(temp.path(), RELEASE, expected);
+    }
+    let temp = checkout();
+    replace(temp.path(), WORKFLOW, "release-v1", "release-v2");
+    assert_eq!(
+        index(temp.path())["projects"][0]["releases"][0]["workflow"],
+        SIGNER
+    );
+}
+
+#[test]
+fn release_assets_match_github_tag_and_asset_names_even_after_rename() {
+    for (old, new, field) in [
+        (
+            "https://github.com/example",
+            "https://github.com.example.org/example",
+            "file.url",
+        ),
+        ("/download/v1.2.0/", "/download/v1.2.1/", "file.url"),
+        (
+            "wayfinder-1.2.0.smod.sigstore.json",
+            "wayfinder-1.2.0.sigstore.json",
+            "file.attestation",
+        ),
+        (
+            "wayfinder-1.2.0.page.tar\"",
+            "other-1.2.0.page.tar\"",
+            "page.url",
+        ),
+        (
+            "wayfinder-1.2.0.page.tar.sigstore.json\"",
+            "wayfinder-1.2.0.page.tar.sigstore.json?q=x\"",
+            "page.attestation",
+        ),
+    ] {
+        let temp = checkout();
+        replace(temp.path(), RELEASE, old, new);
+        rejected(
+            temp.path(),
+            RELEASE,
+            &format!("{field} must be a GitHub release download HTTPS URL"),
+        );
+    }
+    let temp = checkout();
+    replace(temp.path(), WATCHED, "example/wayfinder", "example/renamed");
+    assert_eq!(
+        index(temp.path())["projects"][0]["repository"]["name"],
+        "example/renamed"
+    );
+}
+
+#[test]
+fn release_and_fit_require_exact_sunrise_build_names() {
+    for (file, from, to) in [
+        (RELEASE, "26.3-0.1.0", "latest"),
+        (RELEASE, "26.3-0.1.0", "26.3-0.1.0-beta.1"),
+        (RELEASE_2, "nightly-2026-11-23-abcdef0", "nightly"),
+        (FIT, "26.3-0.1.1", "not-a-build"),
+        (FIT, "26.3-0.1.1", "dev-2026-11-23-notasha"),
+    ] {
+        let temp = checkout();
+        replace(temp.path(), file, from, to);
+        rejected(
+            temp.path(),
+            file,
+            "expected a stable Sunrise tag or an exact Nightly/Dev build ID",
+        );
+    }
+    let temp = checkout();
+    replace(temp.path(), FIT, "26.3-0.1.1", "dev-2026-11-23-abcdef0");
+    assert!(run(&["check", "."], temp.path()).status.success());
+}
+
+#[test]
+fn mod_ids_use_the_manifest_predicate() {
+    for (file, from, id) in [
+        (PROJECT, "wayfinder", "a".repeat(65)),
+        (RELEASE, "map_markers", "con".into()),
+    ] {
+        let temp = checkout();
+        replace(
+            temp.path(),
+            file,
+            &format!("mod = \"{from}\""),
+            &format!("mod = \"{id}\""),
+        );
+        rejected(temp.path(), file, "expected an in-game ID");
+    }
+}
+
+change!(bad_asset_hash, RELEASE, &"a".repeat(64), "f", "SHA-256");
+change!(
+    missing_asset_attestation,
+    RELEASE,
+    "attestation = \"https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.smod.sigstore.json\"",
+    "",
+    "missing field `attestation`"
+);
+change!(
+    missing_page_attestation,
+    RELEASE,
+    "attestation = \"https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.page.tar.sigstore.json\"",
+    "",
+    "missing field `attestation`"
+);
+change!(
+    bad_attestation_url,
+    RELEASE,
+    "attestation = \"https://",
+    "attestation = \"http://",
+    "HTTPS URL"
+);
+change!(
+    bad_asset_url,
+    RELEASE,
+    "url = \"https://",
+    "url = \"file://",
+    "HTTPS URL"
+);
+change!(
+    bad_page_link,
+    PAGE,
+    "https://example.org/wayfinder",
+    "file:///wayfinder",
+    "HTTP(S) URL"
+);
+
+change!(
+    duplicate_repo_id,
+    WATCHED,
+    "987654321",
+    "123456789",
+    "duplicate repository ID"
+);
+change!(
+    duplicate_package_path,
+    WATCHED,
+    "[[repository]]\nid = 987654321\nname = \"other/port-collection\"\n\n[[repository.package]]\npath = \"mods/wayfinder\"",
+    "[[repository.package]]\npath = \".\"",
+    "duplicate package path"
+);
+change!(
+    duplicate_registered_project,
+    WATCHED,
+    "Zz91kLmN",
+    "Ab3dE9xQ",
+    "duplicate registered project ID"
+);
+change!(
+    duplicate_slug,
+    PROJECT_2,
+    "wayfinder-alternate",
+    "wayfinder",
+    "duplicate slug"
+);
+change!(
+    wrong_project_folder,
+    PROJECT,
+    "Ab3dE9xQ",
+    "Ab3dE9xZ",
+    "match the directory name"
+);
+change!(
+    project_repo_mismatch,
+    PROJECT,
+    "123456789",
+    "123456788",
+    "repository ID does not match"
+);
+change!(
+    project_path_mismatch,
+    PROJECT,
+    "path = \".\"",
+    "path = \"subfolder\"",
+    "package path does not match"
+);
+change!(
+    release_filename_mismatch,
+    RELEASE,
+    "version = \"1.2.0\"",
+    "version = \"1.2.1\"",
+    "version must match its filename"
+);
+change!(
+    unknown_dependency_project,
+    RELEASE_2,
+    "Ab3dE9xQ",
+    "Unknown0",
+    "dependency names unregistered project"
+);
+change!(
+    wrong_dependency_project,
+    RELEASE_2,
+    "mod = \"wayfinder\"",
+    "mod = \"other\"",
+    "does not provide other"
+);
+change!(
+    duplicate_category,
+    CATEGORIES,
+    "id = \"utility\"",
+    "id = \"adventure\"",
+    "duplicate category adventure"
+);
+change!(
+    unknown_page_category,
+    PAGE,
+    "\"utility\"",
+    "\"missing\"",
+    "unknown category missing"
+);
+change!(
+    duplicate_page_category,
+    PAGE,
+    "\"utility\"",
+    "\"adventure\"",
+    "duplicate category adventure"
+);
+change!(
+    unknown_fit_release,
+    FIT,
+    "1.2.0",
+    "9.9.9",
+    "unknown release"
+);
+change!(
+    duplicate_fit_build,
+    FIT,
+    "26.3-0.1.1",
+    "26.3-0.1.0",
+    "duplicate build"
+);
+change!(
+    duplicate_fit_release,
+    FIT,
+    "[[release]]",
+    "[[release]]\nversion = \"1.2.0\"\nfits = []\n\n[[release]]",
+    "duplicate fit row"
+);
+change!(
+    duplicate_takedown,
+    REVOKED,
+    "[[revoked]]",
+    "[[revoked]]\nproject = \"Retired0\"\nreason = \"duplicate\"\ndate = \"2026-11-25\"\n\n[[revoked]]",
+    "duplicate takedown"
+);
+change!(
+    bad_revocation_hash,
+    REVOKED,
+    &"c".repeat(64),
+    &"C".repeat(64),
+    "SHA-256"
+);
+change!(
+    too_many_categories,
+    PAGE,
+    "[\"adventure\", \"utility\"]",
+    "[\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\", \"i\"]",
+    "at most 8 categories"
+);
+change!(
+    short_summary,
+    PAGE,
+    "Find your way using the new map display.",
+    &format!("  {}  ", "🗺".repeat(24)),
+    "at least 25 characters"
+);
+change!(
+    short_description,
+    PAGE,
+    "Wayfinder adds a map display that follows you as you explore. Mark landmarks, name spots you want to revisit, and hide the display when you no longer need it.",
+    &format!("  {}  ", "é".repeat(124)),
+    "at least 125 characters"
+);
+change!(
+    missing_page_name,
+    PAGE,
+    "name = \"Wayfinder\"\n",
+    "",
+    "missing field `name`"
+);
+change!(
+    missing_page_authors,
+    PAGE,
+    "authors = [\"Example\"]\n",
+    "",
+    "missing field `authors`"
+);
+change!(
+    missing_page_license,
+    PAGE,
+    "license = \"MIT\"\n",
+    "",
+    "missing field `license`"
+);
+change!(
+    missing_page_icon,
+    PAGE,
+    "icon = \"icon.png\"\n",
+    "",
+    "missing field `icon`"
+);
+change!(
+    missing_page_summary,
+    PAGE,
+    "summary = \"Find your way using the new map display.\"\n",
+    "",
+    "missing field `summary`"
+);
+change!(
+    missing_page_description,
+    PAGE,
+    "description = \"Wayfinder adds a map display that follows you as you explore. Mark landmarks, name spots you want to revisit, and hide the display when you no longer need it.\"\n",
+    "",
+    "missing field `description`"
+);
+change!(
+    empty_screenshots,
+    PAGE,
+    "[[screenshots]]\npath = \"map.png\"\ncaption = \"The map on the title screen.\"",
+    "screenshots = []",
+    "at least one screenshot"
+);
+change!(
+    missing_caption,
+    PAGE,
+    "caption = \"The map on the title screen.\"",
+    "",
+    "missing field `caption`"
+);
+change!(
+    parent_image_path,
+    PAGE,
+    "map.png",
+    "../map.png",
+    "relative path"
+);
+change!(
+    absolute_image_path,
+    PAGE,
+    "map.png",
+    "/map.png",
+    "relative path"
+);
+change!(
+    windows_image_path,
+    PAGE,
+    "map.png",
+    "C:/map.png",
+    "relative path"
+);
+change!(
+    backslash_image_path,
+    PAGE,
+    "map.png",
+    "..\\\\map.png",
+    "relative path"
+);
+change!(
+    missing_screenshot,
+    PAGE,
+    "map.png",
+    "missing.png",
+    "not a regular file"
+);
+change!(
+    missing_icon_file,
+    PAGE,
+    "icon.png",
+    "missing.png",
+    "not a regular file"
+);
+
+#[test]
+fn category_must_apply_to_kind() {
+    let temp = checkout();
+    replace(
+        temp.path(),
+        PROJECT,
+        "kind = \"native-mod\"",
+        "kind = \"shader\"",
+    );
+    rejected(temp.path(), PAGE, "does not apply to this project kind");
+}
+
+#[test]
+fn only_subfolder_packages_in_one_repo_collide_on_the_same_in_game_id() {
+    let temp = checkout();
+    replace(
+        temp.path(),
+        WATCHED,
+        "[[repository]]\nid = 987654321\nname = \"other/port-collection\"\n\n",
+        "",
+    );
+    replace(temp.path(), PROJECT_2, "987654321", "123456789");
+    let count = index(temp.path())["projects"].as_array().unwrap().len();
+    assert_eq!(count, 2);
+
+    for file in [WATCHED, PROJECT] {
+        replace(
+            temp.path(),
+            file,
+            "path = \".\"",
+            "path = \"mods/root-wayfinder\"",
+        );
+    }
+    let file = temp.path().join(RELEASE);
+    let text = fs::read_to_string(&file).unwrap();
+    fs::write(
+        file,
+        text.replace("tag = \"v1.2.0\"", "tag = \"wayfinder/v1.2.0\"")
+            .replace("/download/v1.2.0/", "/download/wayfinder%2Fv1.2.0/"),
+    )
+    .unwrap();
+    rejected(temp.path(), PROJECT_2, "same in-game ID");
+}
+
+#[test]
+fn watched_project_must_have_metadata() {
+    let temp = checkout();
+    fs::remove_dir_all(temp.path().join(PROJECT).parent().unwrap()).unwrap();
+    rejected(temp.path(), WATCHED, "Ab3dE9xQ has no project.toml");
+}
+
+#[test]
+fn project_must_be_watched() {
+    let temp = checkout();
+    fs::write(temp.path().join(WATCHED), "repository = []\n").unwrap();
+    rejected(temp.path(), PROJECT, "not registered");
+}
+
+#[test]
+fn release_must_have_page() {
+    let temp = checkout();
+    fs::remove_dir_all(temp.path().join(PAGE).parent().unwrap()).unwrap();
+    rejected(
+        temp.path(),
+        "registry/projects/Ab3dE9xQ/page",
+        "expected a page directory",
+    );
+}
+
+#[test]
+fn unexpected_entries_are_rejected() {
+    let temp = checkout();
+    fs::write(temp.path().join("registry/extra.toml"), "").unwrap();
+    rejected(
+        temp.path(),
+        "registry/extra.toml",
+        "unexpected registry entry",
+    );
+}
+
+#[test]
+fn fit_filename_must_name_a_registered_project() {
+    let temp = checkout();
+    fs::rename(
+        temp.path().join(FIT),
+        temp.path().join("registry/fit/Unknown0.toml"),
+    )
+    .unwrap();
+    rejected(
+        temp.path(),
+        "registry/fit/Unknown0.toml",
+        "unregistered project",
+    );
+}
+
+#[test]
+fn release_filename_must_be_a_version() {
+    let temp = checkout();
+    let dest = "registry/projects/Ab3dE9xQ/releases/latest.toml";
+    fs::rename(temp.path().join(RELEASE), temp.path().join(dest)).unwrap();
+    rejected(temp.path(), dest, "named by a semantic version");
+}
+
+#[test]
+fn screenshot_requires_a_png_or_jpeg_signature() {
+    let temp = checkout();
+    fs::write(temp.path().join(SCREENSHOT), b"not an image").unwrap();
+    rejected(temp.path(), SCREENSHOT, "PNG or JPEG file signature");
+}
+
+#[test]
+fn referenced_image_extension_must_match_its_format() {
+    for (image, from, to) in [
+        (SCREENSHOT, "map.png", "map.jpg"),
+        (SCREENSHOT, "map.png", "map.html"),
+        (ICON, "icon.png", "icon.jpg"),
+    ] {
+        let temp = checkout();
+        let renamed = image.replace(from, to);
+        fs::rename(temp.path().join(image), temp.path().join(&renamed)).unwrap();
+        replace(temp.path(), PAGE, from, to);
+        rejected(temp.path(), &renamed, "extension must match");
+    }
+}
+
+#[test]
+fn nested_unreferenced_page_files_are_rejected() {
+    let temp = checkout();
+    let file = "registry/projects/Ab3dE9xQ/page/gallery/extra.png";
+    fs::create_dir_all(temp.path().join(file).parent().unwrap()).unwrap();
+    fs::copy(temp.path().join(SCREENSHOT), temp.path().join(file)).unwrap();
+    rejected(
+        temp.path(),
+        file,
+        "page file is not referenced by page.toml",
+    );
+}
+
+#[test]
+fn screenshot_gallery_size_does_not_replace_the_package_icon_limit() {
+    let temp = checkout();
+    let f = fs::OpenOptions::new()
+        .write(true)
+        .open(temp.path().join(SCREENSHOT))
+        .unwrap();
+    f.set_len(5 * 1024 * 1024).unwrap();
+    assert!(run(&["check", "."], temp.path()).status.success());
+    f.set_len(5 * 1024 * 1024 + 1).unwrap();
+    rejected(temp.path(), SCREENSHOT, "screenshot exceeds 5 MiB");
+    f.set_len(5 * 1024 * 1024).unwrap();
+
+    fs::OpenOptions::new()
+        .write(true)
+        .open(temp.path().join(ICON))
+        .unwrap()
+        .set_len(256 * 1024 + 1)
+        .unwrap();
+    rejected(temp.path(), ICON, "icon.png exceeds 256 KiB");
+}
+
+#[cfg(unix)]
+#[test]
+fn registry_root_symlink_is_not_followed() {
+    use std::os::unix::fs::symlink;
+    let temp = checkout();
+    let other = checkout();
+    let registry = temp.path().join("registry");
+    fs::remove_dir_all(&registry).unwrap();
+    symlink(other.path().join("registry"), registry).unwrap();
+    rejected(temp.path(), "registry", "not a symlink");
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_toml_is_not_followed() {
+    use std::os::unix::fs::symlink;
+    let temp = checkout();
+    let other = checkout();
+    let watched = temp.path().join(WATCHED);
+    fs::remove_file(&watched).unwrap();
+    symlink(other.path().join(WATCHED), watched).unwrap();
+    rejected(temp.path(), WATCHED, "not a symlink");
+}
+
+#[cfg(unix)]
+#[test]
+fn image_directory_symlink_is_not_followed() {
+    use std::os::unix::fs::symlink;
+    let dir = "registry/projects/Zz91kLmN/page/gallery";
+    let temp = checkout();
+    let other = checkout();
+    fs::remove_dir_all(temp.path().join(dir)).unwrap();
+    symlink(other.path().join(dir), temp.path().join(dir)).unwrap();
+    rejected(temp.path(), dir, "not a symlink");
+}
+
+#[cfg(unix)]
+#[test]
+fn image_file_symlink_is_not_followed() {
+    use std::os::unix::fs::symlink;
+    let temp = checkout();
+    let other = checkout();
+    fs::remove_file(temp.path().join(SCREENSHOT)).unwrap();
+    symlink(other.path().join(SCREENSHOT), temp.path().join(SCREENSHOT)).unwrap();
+    rejected(temp.path(), SCREENSHOT, "not a symlink");
+}
+
+#[test]
+fn multiple_problems_are_each_reported_on_one_line() {
+    let temp = checkout();
+    replace(temp.path(), PAGE, "name =", "test = true\nname =");
+    replace(temp.path(), WORKFLOW, "uses =", "test = true\nuses =");
+    let output = run(&["check", "."], temp.path());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr.lines().count(), 2, "{stderr}");
+    assert!(
+        stderr
+            .lines()
+            .all(|line| line.starts_with("registry/") && line.contains("unknown field"))
+    );
+}
+
+#[test]
+fn diagnostics_escape_both_workflow_command_markers() {
+    let temp = checkout();
+    replace(
+        temp.path(),
+        PAGE,
+        "name =",
+        "\"##[warning]::warning:::\" = true\nname =",
+    );
+    let output = run(&["check", "."], temp.path());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert!(
+        stderr.contains("%23%23%5Bwarning]%3A%3Awarning%3A%3A:"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("##[") && !stderr.contains("::"),
+        "{stderr}"
+    );
+}
+
+fn index(checkout: &Path) -> Value {
+    let result = run(
+        &["index", ".", "--serial", "41", "--out", "output"],
+        checkout,
+    );
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    serde_json::from_slice(&fs::read(checkout.join("output/index.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn full_index_matches_golden_with_both_providers() {
+    let temp = checkout();
+    let expected: Value =
+        serde_json::from_slice(&fs::read(fixture().join("index.json")).unwrap()).unwrap();
+    let mut actual = index(temp.path());
+    let generated = OffsetDateTime::parse(actual["generated"].as_str().unwrap(), &Rfc3339).unwrap();
+    assert!(generated.offset().is_utc());
+    actual["generated"] = expected["generated"].clone();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn project_without_a_release_does_not_need_a_page_and_is_not_listed() {
+    let temp = checkout();
+    fs::remove_file(temp.path().join(RELEASE)).unwrap();
+    fs::remove_file(temp.path().join(FIT)).unwrap();
+    fs::remove_dir_all(temp.path().join(PAGE).parent().unwrap()).unwrap();
+    let value = index(temp.path());
+    assert_eq!(value["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(value["projects"][0]["id"], "Zz91kLmN");
+}
+
+#[test]
+fn invalid_checkout_produces_no_index() {
+    let temp = checkout();
+    fs::remove_file(temp.path().join(RELEASE)).unwrap();
+    let output = run(
+        &["index", ".", "--serial", "41", "--out", "output"],
+        temp.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!temp.path().join("output").exists());
+}
+
+#[test]
+fn malformed_serial_is_a_usage_error() {
+    let temp = checkout();
+    let output = run(
+        &["index", ".", "--serial", "-1", "--out", "output"],
+        temp.path(),
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!temp.path().join("output").exists());
+}
