@@ -1,0 +1,50 @@
+name: scan-test
+
+on:
+  pull_request:
+    paths: ['scanner/**', '.github/workflows/scan.yml', '.github/workflows/scan-test.yml']
+  push:
+    paths: ['scanner/**', '.github/workflows/scan.yml', '.github/workflows/scan-test.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test the job summary preview
+        run: python3 -I -m unittest discover -s scanner -p test_workflow.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fixture-flags
+          path: scanner/tests/flags/
+          include-hidden-files: true
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fixture-prior
+          path: scanner/tests/prior/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  flags-and-diff:
+    needs: fixture-artifacts
+    uses: ./.github/workflows/scan.yml
+    with:
+      source-artifact: fixture-flags
+      previous-artifact: fixture-prior
+      fixture: flags
+
+  paths-and-failures:
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [clean, git-dependency, malicious-dependency, stale-lock, missing-target]
+    uses: ./.github/workflows/scan.yml
+    with:
+      source-path: scanner/tests/${{ matrix.fixture }}
+      fixture: ${{ matrix.fixture }}

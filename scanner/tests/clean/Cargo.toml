@@ -1,0 +1,4 @@
+[package]
+name = "scanner-fixture"
+version = "1.0.0-rc.1+build.1"
+edition = "2024"
