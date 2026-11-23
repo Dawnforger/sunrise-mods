@@ -4,13 +4,13 @@ on:
   workflow_call:
     inputs:
       source-artifact:
-        description: Artifact from this run containing one unpacked release at its root.
+        description: Artifact from this run containing one unpacked release at its root, including hidden files.
         type: string
       source-path:
         description: Alternatively, a directory relative to the trusted registry checkout.
         type: string
       previous-artifact:
-        description: Optional artifact containing the unpacked last approved release.
+        description: Optional artifact containing the unpacked last approved release, including hidden files.
         type: string
       previous-path:
         description: Alternatively, a previous release directory relative to the trusted checkout.

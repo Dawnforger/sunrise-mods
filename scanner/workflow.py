@@ -1,5 +1,6 @@
 """Resolve workflow inputs and publish the scanner's Markdown, including on failure."""
 
+import html
 import os
 from pathlib import Path
 import re
@@ -24,11 +25,17 @@ def check_fixture(case, code, report):
         rust = Path("scanner/tests/flags/src/lib.rs").read_text()
         for rule in re.findall(r"// ruleid: ([\w-]+)", rust):
             assert f"#### <code>{rule}</code>" in report, rule
-        for text in ("Build scripts changed: <code>build.rs</code>", "Proc-macro crates changed: <code>macros</code>",
-                     "Added <code>build.rs</code>", "Removed <code>removed.txt</code>", "Changed <code>src/lib.rs</code>",
-                     "Changed dependency <code>crossbeam-channel</code>", "RUSTSEC-2025-0024",
-                     "crossbeam-channel 0.5.14 is yanked."):
-            assert text in report, text
+        literal = html.unescape(report)
+        for text in ("Build scripts changed: <code>build.input</code>", "Proc-macro crates changed: <code>macros</code>",
+                     "<code>build.input:2</code>", "<code>special.entry:2</code>",
+                     "<code>.internal/[link](www.example.invalid).rs:2</code>",
+                     "Removed <code>.internal/retired.rs</code>", "Removed <code>removed.txt</code>",
+                     "Changed <code>src/lib.rs</code>", "Changed dependency <code>crossbeam-channel</code>",
+                     "RUSTSEC-2025-0024", "crossbeam-channel 0.5.14 is yanked."):
+            assert text in literal, text
+        # Encode the Markdown link delimiters and the bare www. autolink trigger.
+        assert "&#91;link&#93;&#40;www&#46;example&#46;invalid&#41;" in report
+        assert "[link](www.example.invalid)" not in report
     elif case == "clean":
         assert "### Flags\nNone." in report
     else:

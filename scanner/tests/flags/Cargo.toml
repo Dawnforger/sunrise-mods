@@ -2,6 +2,11 @@
 name = "scanner-fixture"
 version = "0.1.0"
 edition = "2024"
+build = "build.input"
+
+[[bin]]
+name = "fixture-bin"
+path = "./special.entry"
 
 [workspace]
 members = ["macros"]

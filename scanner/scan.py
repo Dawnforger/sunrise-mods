@@ -4,7 +4,6 @@
 import argparse
 from collections import defaultdict
 import hashlib
-import html
 import json
 import os
 from pathlib import Path
@@ -19,6 +18,11 @@ CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 SPARSE_IO = "sparse+https://index.crates.io/"
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "dev_dependencies",
                      "build-dependencies", "build_dependencies")
+# SemVer 2.0.0: numeric prerelease identifiers, unlike build identifiers, cannot have leading zeros.
+NUMBER = r"(?:0|[1-9][0-9]*)"
+PRERELEASE = rf"(?:{NUMBER}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+BUILD = r"[0-9A-Za-z-]+"
+SEMVER = re.compile(rf"{NUMBER}\.{NUMBER}\.{NUMBER}(?:-{PRERELEASE}(?:\.{PRERELEASE})*)?(?:\+{BUILD}(?:\.{BUILD})*)?")
 
 
 class ScanError(Exception):
@@ -26,9 +30,11 @@ class ScanError(Exception):
 
 
 def safe(value):
-    # No Markdown, HTML, mentions, workflow commands, or control characters from source.
+    # Encode Markdown delimiters and autolink punctuation too: inline HTML code tags
+    # alone do not stop GitHub from parsing Markdown between them.
     quoted = json.dumps(str(value), ensure_ascii=True)[1:-1]
-    return "<code>" + html.escape(quoted).replace("@", "&#64;").replace(":", "&#58;") + "</code>"
+    text = "".join(c if c.isalnum() or c in " /-" else f"&#{ord(c)};" for c in quoted)
+    return f"<code>{text}</code>"
 
 
 def run(args, cwd, env=None):
@@ -69,7 +75,7 @@ def lock_packages(files):
         if (not isinstance(p, dict) or not isinstance(p.get("name"), str)
                 or not re.fullmatch(r"[a-zA-Z0-9_-]+", p["name"])
                 or not isinstance(p.get("version"), str)
-                or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.+-]+)?", p["version"])
+                or not SEMVER.fullmatch(p["version"])
                 or not isinstance(p.get("source", ""), str)
                 or not isinstance(p.get("checksum", ""), str)):
             raise ScanError("Invalid package record in Cargo.lock.")
@@ -119,13 +125,13 @@ def source_policy(root, manifests, packages, failures):
                 failures.append(("non-crates-io", f"{path}: {name} points outside the package ({dependency_path})"))
 
 
-def semgrep(files, work, flags):
+def semgrep(files, targets, work, flags):
     src = work / "rust"
     src.mkdir()
     # A flat scan-only snapshot defeats author ignore files, hidden paths and unsafe filenames.
     paths = {}
     for name, path in files.items():
-        if name.suffix == ".rs":
+        if name.suffix == ".rs" or name in targets:
             key = f"{len(paths)}.rs"
             paths[key] = name
             shutil.copyfile(path, src / key)
@@ -244,18 +250,27 @@ def dependency_scan(source, packages, locations, work, failures, flags, note):
             return
 
 
-def build_targets(files, manifests):
-    scripts, macros = set(), set()
+def build_targets(root, files, manifests):
+    root = Path(os.path.abspath(root))
+
+    def target_path(manifest_path, declared):
+        path = Path(os.path.normpath(root / manifest_path.parent / declared))
+        return path.relative_to(root) if path.is_relative_to(root) else path
+
+    scripts, macros, targets = set(), set(), set()
     for path, manifest in manifests.items():
         build = manifest.get("package", {}).get("build", True)
         if build is not False:
-            script = path.parent / (build if isinstance(build, str) else "build.rs")
+            script = target_path(path, build if isinstance(build, str) else "build.rs")
             if script in files or isinstance(build, str):
                 scripts.add(script)
         lib = manifest.get("lib", {})
         if lib.get("proc-macro") or lib.get("proc_macro") or "proc-macro" in lib.get("crate-type", []):
             macros.add(path.parent)
-    return scripts, macros
+        declarations = [lib, *(target for kind in ("bin", "example", "test", "bench")
+                               for target in manifest.get(kind, []))]
+        targets.update(target_path(path, target["path"]) for target in declarations if "path" in target)
+    return scripts, macros, targets | scripts
 
 
 def release_diff(files, packages, locations, manifests, scripts, macros, prior, flags):
@@ -267,7 +282,7 @@ def release_diff(files, packages, locations, manifests, scripts, macros, prior, 
         return ["No previous approved release; every file, dependency, build script and proc-macro crate is new."]
     old = release_files(prior)
     old_manifests = {p: read_toml(f) for p, f in old.items() if p.name == "Cargo.toml"}
-    old_scripts, old_macros = build_targets(old, old_manifests)
+    old_scripts, old_macros, _ = build_targets(prior, old, old_manifests)
     added = files.keys() - old.keys()
     removed = old.keys() - files.keys()
     changed = {p for p in files.keys() & old.keys() if sha(files[p]) != sha(old[p])}
@@ -313,8 +328,8 @@ def scan(source, prior, work, failures, flags, note):
     if (manifests or Path("Cargo.lock") in files) and not {Path("Cargo.toml"), Path("Cargo.lock")} <= files.keys():
         failures.append(("lockfile-out-of-date", "A Rust release must include a root Cargo.toml and Cargo.lock."))
     source_policy(source, manifests, packages, failures)
-    semgrep(files, work, flags)
-    scripts, macros = build_targets(files, manifests)
+    scripts, macros, targets = build_targets(source, files, manifests)
+    semgrep(files, targets, work, flags)
     for path in sorted(scripts):
         flags["Build scripts"].append((f"{path}:1", "Review the code Cargo runs before compiling the mod."))
     for path in sorted(macros):
