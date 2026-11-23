@@ -10,10 +10,12 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 
 SCANNER = Path(__file__).resolve().parent
+SDK_API = Path(".sunrise/sdk/api/crates/sunrise-mod-api")
 CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 SPARSE_IO = "sparse+https://index.crates.io/"
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "dev_dependencies",
@@ -92,6 +94,7 @@ def lock_locations(path, packages):
 
 
 def source_policy(root, manifests, packages, failures):
+    needs_sdk = False
     for p in packages:
         if p.get("source", "") not in ("", CRATES_IO, SPARSE_IO):
             failures.append(("non-crates-io", f"Cargo.lock: {p['name']} {p['version']} has source {p['source']}"))
@@ -118,9 +121,15 @@ def source_policy(root, manifests, packages, failures):
         path_fields.extend((f"workspace.{key}", member) for key in ("members", "default-members", "exclude")
                            for member in workspace.get(key, []))
         for name, dependency_path in path_fields:
-            dest = root / path.parent / dependency_path
-            if Path(dependency_path).is_absolute() or not dest.resolve().is_relative_to(root):
+            dest = (root / path.parent / dependency_path).resolve()
+            if Path(dependency_path).is_absolute() or not dest.is_relative_to(root):
                 failures.append(("non-crates-io", f"{path}: {name} points outside the package ({dependency_path})"))
+            elif dest.is_relative_to(root / ".sunrise/sdk"):
+                if dest == root / SDK_API and name not in ("package.workspace", "workspace.members", "workspace.default-members", "workspace.exclude"):
+                    needs_sdk = True
+                else:
+                    failures.append(("non-crates-io", f"{path}: {name} references the generated SDK outside its mod API crate"))
+    return needs_sdk
 
 
 def semgrep(files, targets, work, flags):
@@ -182,7 +191,7 @@ def locked_graph(stub, packages):
             "resolve": {"root": root_id, "nodes": nodes}}
 
 
-def dependency_scan(source, packages, locations, work, failures, flags, note):
+def dependency_scan(source, needs_sdk, packages, locations, work, failures, flags, note):
     cargo_home = work / "cargo-home"
     env = {k: v for k, v in os.environ.items() if not k.startswith(("CARGO_", "RUSTUP_", "RUSTC"))}
     env.update(CARGO_HOME=str(cargo_home), CARGO_TERM_COLOR="never", CARGO=str(shutil.which("cargo")),
@@ -211,6 +220,16 @@ def dependency_scan(source, packages, locations, work, failures, flags, note):
     config.write_text((SCANNER / "deny.toml").read_text().replace("[advisories]\n", "[advisories]\ndisable-yank-checking = true\n"))
     for with_index in (False, True):
         if with_index:
+            if needs_sdk:
+                # The packager omits the SDK, even though the standard native template
+                # depends on its API crate. Populate a scratch copy for Cargo only;
+                # the scanner's file inventory and diff remain those of the release.
+                locked = work / "locked-source"
+                shutil.copytree(source, locked)
+                result = run([sys.executable, "-I", str(SCANNER.parent / "bot/ci/build_release.py"),
+                              str(locked), "prepare-sdk"], work, env)
+                require_success(result, "Signed native SDK fetch")
+                source = locked
             result = run(["cargo", "fetch", "--locked", "--manifest-path", str(source / "Cargo.toml")], work, env)
             if result.returncode and re.search(r"(?:cannot update the lock file .*because --locked was passed|the lock file .* needs to be updated but --locked was passed)", result.stderr):
                 raise ScanError("Cargo.lock does not match the manifests; Cargo --locked refused it.")
@@ -322,7 +341,7 @@ def scan(source, prior, work, failures, flags, note):
     files = release_files(source)
     manifests = {p: read_toml(f) for p, f in files.items() if p.name == "Cargo.toml"}
     packages = lock_packages(files)
-    source_policy(source, manifests, packages, failures)
+    needs_sdk = source_policy(source, manifests, packages, failures)
     scripts, macros, targets = build_targets(source, files, manifests)
     # A declared entry point that is absent or outside the release was not read by anyone.
     unread = sorted(target.name if target.is_absolute() else str(target) for target in targets - files.keys())
@@ -340,7 +359,7 @@ def scan(source, prior, work, failures, flags, note):
             raise ScanError(f"Cargo.lock: {p['name']} {p['version']} has no valid checksum")
     locations = lock_locations(files[Path("Cargo.lock")], packages) if packages else {}
     if manifests and not failures:
-        dependency_scan(source, packages, locations, work, failures, flags, note)
+        dependency_scan(source, needs_sdk, packages, locations, work, failures, flags, note)
     return release_diff(files, packages, locations, manifests, scripts, macros, prior, flags)
 
 

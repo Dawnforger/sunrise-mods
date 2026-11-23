@@ -1,0 +1,442 @@
+//! Read-only GitHub boundary for release observation and attestation verification.
+use std::{collections::BTreeSet, fs, path::Path, process::Command};
+
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use serde::{Deserialize, de::DeserializeOwned};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+use crate::schema::{RepositoryId, RepositoryName, SignerWorkflowRef};
+
+#[derive(Deserialize)]
+pub struct Repository {
+    pub id: RepositoryId,
+    #[serde(rename = "full_name")]
+    pub name: RepositoryName,
+    pub private: bool,
+}
+
+#[derive(Deserialize)]
+pub struct Release {
+    pub tag_name: String,
+    pub name: Option<String>,
+    pub published_at: Option<String>,
+    pub draft: bool,
+    pub assets: Vec<Asset>,
+}
+
+impl Release {
+    pub fn published(&self) -> Option<OffsetDateTime> {
+        if self.draft {
+            return None;
+        }
+        OffsetDateTime::parse(self.published_at.as_deref()?, &Rfc3339).ok()
+    }
+
+    pub fn asset(&self, name: &str) -> Result<&Asset, String> {
+        let mut rows = self.assets.iter().filter(|row| row.name == name);
+        match (rows.next(), rows.next()) {
+            (Some(row), None) => Ok(row),
+            _ => Err(format!("expected exactly one {name} asset")),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Asset {
+    pub name: String,
+    pub size: u64,
+    pub digest: Option<String>,
+    pub browser_download_url: String,
+}
+
+#[derive(Clone, Copy)]
+pub enum Repo<'a> {
+    Named(&'a RepositoryName),
+    Registered(RepositoryId),
+}
+
+impl Repo<'_> {
+    fn endpoint(self) -> String {
+        match self {
+            Self::Named(name) => format!("repos/{}", name.as_str()),
+            Self::Registered(id) => format!("repositories/{}", id.get()),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ReleaseBranches {
+    pub open: BTreeSet<String>,
+    pub handled: BTreeSet<String>,
+}
+
+pub trait GitHub {
+    fn repository(&self, repo: Repo<'_>) -> Result<Repository, String>;
+    fn releases(&self, repo: Repo<'_>) -> Result<Vec<Release>, String>;
+    fn release_branches(&self) -> Result<ReleaseBranches, String>;
+    fn tag_commit(&self, repo: Repo<'_>, tag: &str) -> Result<String, String>;
+
+    fn download_release(&self, url: &str, dest: &Path, limit: u64) -> Result<(), String> {
+        download(url, dest, limit)
+    }
+
+    fn verify_attestation(
+        &self,
+        check: Attestation<'_>,
+        file: &Path,
+        bundle: &Path,
+    ) -> Result<SignerWorkflowRef, Observation> {
+        check.verify(file, bundle)
+    }
+}
+
+pub struct Cli<'a> {
+    pub registry: &'a RepositoryName,
+}
+
+impl GitHub for Cli<'_> {
+    fn repository(&self, repo: Repo<'_>) -> Result<Repository, String> {
+        api(&repo.endpoint())
+    }
+
+    fn releases(&self, repo: Repo<'_>) -> Result<Vec<Release>, String> {
+        pages(&format!("{}/releases?per_page=100", repo.endpoint()))
+    }
+
+    fn release_branches(&self) -> Result<ReleaseBranches, String> {
+        #[derive(Deserialize)]
+        struct Pull {
+            head: Head,
+            state: String,
+            user: User,
+        }
+        #[derive(Deserialize)]
+        struct User {
+            login: String,
+        }
+        #[derive(Deserialize)]
+        struct Head {
+            #[serde(rename = "ref")]
+            branch: String,
+            repo: Option<HeadRepo>,
+        }
+        #[derive(Deserialize)]
+        struct HeadRepo {
+            full_name: RepositoryName,
+        }
+        let pulls: Vec<Pull> = pages(&format!(
+            "repos/{}/pulls?state=all&per_page=100",
+            self.registry.as_str()
+        ))?;
+        let mut branches = ReleaseBranches::default();
+        for p in pulls {
+            if p.user.login == "github-actions[bot]"
+                && p.head.branch.starts_with("release/")
+                && p.head.repo.as_ref().is_some_and(|r| {
+                    r.full_name
+                        .as_str()
+                        .eq_ignore_ascii_case(self.registry.as_str())
+                })
+            {
+                if p.state == "open" {
+                    branches.open.insert(p.head.branch.clone());
+                }
+                branches.handled.insert(p.head.branch);
+            }
+        }
+        Ok(branches)
+    }
+
+    fn tag_commit(&self, repo: Repo<'_>, tag: &str) -> Result<String, String> {
+        #[derive(Deserialize)]
+        struct Commit {
+            sha: String,
+        }
+        // Fully qualify the ref, including when a branch has the same name. The commits
+        // endpoint dereferences annotated tags to the commit the OIDC certificate names.
+        let commit: Commit = api(&format!(
+            "{}/commits/refs/tags/{}",
+            repo.endpoint(),
+            encode(tag)
+        ))?;
+        if !sunrise_mod_package::manifest::revision(&commit.sha) {
+            return Err("GitHub returned an invalid tag commit".into());
+        }
+        Ok(commit.sha)
+    }
+}
+
+pub fn encode(text: &str) -> percent_encoding::PercentEncode<'_> {
+    const SEGMENT: &AsciiSet = &CONTROLS
+        .add(b'%')
+        .add(b'/')
+        .add(b'?')
+        .add(b'#')
+        .add(b' ')
+        .add(b'+');
+    utf8_percent_encode(text, SEGMENT)
+}
+
+fn api<T: DeserializeOwned>(endpoint: &str) -> Result<T, String> {
+    decode(&gh(&["api", "--hostname", "github.com", endpoint])?)
+}
+
+fn pages<T: DeserializeOwned>(endpoint: &str) -> Result<Vec<T>, String> {
+    let pages: Vec<Vec<T>> = decode(&gh(&[
+        "api",
+        "--hostname",
+        "github.com",
+        "--paginate",
+        "--slurp",
+        endpoint,
+    ])?)?;
+    Ok(pages.into_iter().flatten().collect())
+}
+
+fn gh(args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = Command::new("gh")
+        .args(args)
+        .output()
+        .map_err(|e| format!("gh: {e}"))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(format!(
+            "gh: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
+    serde_json::from_slice(bytes).map_err(|e| format!("GitHub JSON: {e}"))
+}
+
+pub fn download(url: &str, dest: &Path, limit: u64) -> Result<(), String> {
+    if limit == 0 {
+        return Err("empty release asset".into());
+    }
+    // All callers pass a canonical GitHub release URL. HTTPS redirects are needed for GitHub's
+    // CDN and repository renames. curl never gets an authorization header or an author's options.
+    let output = Command::new("curl")
+        .args([
+            "--disable",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--max-filesize",
+        ])
+        .arg(limit.to_string())
+        .arg("--output")
+        .arg(dest)
+        .arg("--url")
+        .arg(url)
+        .output()
+        .map_err(|e| format!("curl: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "download failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    if fs::metadata(dest).map_err(|e| e.to_string())?.len() > limit {
+        return Err("download exceeds its size limit".into());
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum Observation {
+    Unknown(String),
+    Ineligible(String),
+}
+
+impl std::fmt::Display for Observation {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown(reason) => write!(out, "release verification is unknown: {reason}"),
+            Self::Ineligible(reason) => out.write_str(reason),
+        }
+    }
+}
+
+pub struct Attestation<'a> {
+    pub repository_id: RepositoryId,
+    pub repository_name: &'a RepositoryName,
+    pub workflow_path: &'a str,
+    pub tag: &'a str,
+    pub commit: &'a str,
+}
+
+impl Attestation<'_> {
+    pub fn verify(&self, file: &Path, bundle: &Path) -> Result<SignerWorkflowRef, Observation> {
+        let path = |p: &Path| {
+            p.to_str()
+                .map(str::to_owned)
+                .ok_or("verification path is not UTF-8")
+        };
+        let file = path(file).map_err(|error| Observation::Unknown(error.into()))?;
+        let bundle = path(bundle).map_err(|error| Observation::Unknown(error.into()))?;
+        let source_ref = format!("refs/tags/{}", self.tag);
+        let output = gh(&[
+            "attestation",
+            "verify",
+            &file,
+            "--bundle",
+            &bundle,
+            "--hostname",
+            "github.com",
+            "--repo",
+            self.repository_name.as_str(),
+            "--signer-workflow",
+            self.workflow_path,
+            "--source-ref",
+            &source_ref,
+            "--source-digest",
+            self.commit,
+            "--format",
+            "json",
+        ])
+        .or_else(|_| {
+            // After a repository is renamed, verification by owner still scopes the certificate
+            // to GitHub's account; the numeric repository ID check below remains mandatory.
+            let (owner, _) = self
+                .repository_name
+                .as_str()
+                .split_once('/')
+                .ok_or("invalid repository name")?;
+            gh(&[
+                "attestation",
+                "verify",
+                &file,
+                "--bundle",
+                &bundle,
+                "--hostname",
+                "github.com",
+                "--owner",
+                owner,
+                "--signer-workflow",
+                self.workflow_path,
+                "--source-ref",
+                &source_ref,
+                "--source-digest",
+                self.commit,
+                "--format",
+                "json",
+            ])
+        })
+        .map_err(Observation::Unknown)?;
+        self.claims(&output)
+    }
+
+    fn claims(&self, output: &[u8]) -> Result<SignerWorkflowRef, Observation> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Verified {
+            verification_result: Verification,
+        }
+        #[derive(Deserialize)]
+        struct Verification {
+            signature: Signature,
+        }
+        #[derive(Deserialize)]
+        struct Signature {
+            certificate: Certificate,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Certificate {
+            subject_alternative_name: String,
+            #[serde(rename = "buildSignerURI")]
+            build_signer_uri: String,
+            source_repository_identifier: String,
+            source_repository_ref: String,
+            source_repository_digest: String,
+        }
+        let results: Vec<Verified> = decode(output).map_err(Observation::Unknown)?;
+        let mut refs = BTreeSet::new();
+        for result in results {
+            let cert = result.verification_result.signature.certificate;
+            if cert.source_repository_identifier.parse::<u64>().ok()
+                != Some(self.repository_id.get())
+                || cert.source_repository_ref != format!("refs/tags/{}", self.tag)
+                || cert.source_repository_digest != self.commit
+                || cert.build_signer_uri != cert.subject_alternative_name
+            {
+                continue;
+            }
+            if let Some(signer) = cert.build_signer_uri.strip_prefix("https://github.com/")
+                && signer
+                    .split_once('@')
+                    .is_some_and(|(path, _)| path == self.workflow_path)
+                && let Ok(workflow) = SignerWorkflowRef::parse(signer.into())
+            {
+                refs.insert(workflow);
+            }
+        }
+        if refs.len() != 1 {
+            return Err(Observation::Ineligible("expected one verified signer workflow at a release-v<number> tag for the registered repository ID and release ref/commit".into()));
+        }
+        refs.into_iter()
+            .next()
+            .ok_or_else(|| Observation::Ineligible("no verified signer workflow".into()))
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn verified_certificate_must_bind_numeric_id_tag_commit_and_a_versioned_signer() {
+        let repo = RepositoryName::parse("Example/Renamed".into()).unwrap();
+        let id = serde_json::from_str::<RepositoryId>("123456789").unwrap();
+        let check = Attestation {
+            repository_id: id,
+            repository_name: &repo,
+            workflow_path: crate::schema::RELEASE_WORKFLOW,
+            tag: "mod/v1.2.0",
+            commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        };
+        let uri = format!(
+            "https://github.com/{}@refs/tags/release-v2",
+            check.workflow_path
+        );
+        let cert = json!({
+            "subjectAlternativeName": uri,
+            "buildSignerURI": uri,
+            "sourceRepositoryIdentifier": "123456789",
+            "sourceRepositoryRef": "refs/tags/mod/v1.2.0",
+            "sourceRepositoryDigest": check.commit,
+        });
+        let verified =
+            |cert| json!([{"verificationResult":{"signature":{"certificate":cert}}}]).to_string();
+        assert!(check.claims(verified(cert.clone()).as_bytes()).is_ok());
+        for (field, wrong) in [
+            ("sourceRepositoryIdentifier", "123456788"),
+            ("sourceRepositoryRef", "refs/heads/mod/v1.2.0"),
+            (
+                "sourceRepositoryDigest",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+            ("buildSignerURI", "another workflow"),
+        ] {
+            let mut wrong_cert = cert.clone();
+            wrong_cert[field] = json!(wrong);
+            assert!(
+                check.claims(verified(wrong_cert).as_bytes()).is_err(),
+                "accepted wrong {field}"
+            );
+        }
+        let mut moving = cert;
+        let moving_uri = uri.replace("refs/tags/release-v2", "refs/heads/main");
+        moving["buildSignerURI"] = json!(moving_uri);
+        moving["subjectAlternativeName"] = json!(moving_uri);
+        assert!(check.claims(verified(moving).as_bytes()).is_err());
+    }
+}

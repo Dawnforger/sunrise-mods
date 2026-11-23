@@ -13,7 +13,7 @@ checks both SHA-256 hashes, verifies both GitHub attestations against the regist
 signer workflow and release tag, and checks that the mod builds against the named Sunrise build.
 These checks do not establish that the code is safe.
 
-Read the scanner summary (`summary.md` in the `scan-summary` artifact). **Flags** groups findings by
+Read the scanner summary (`summary.md` in the current attempt's `scan-summary-<attempt>` artifact). **Flags** groups findings by
 subject with file and line references. **Release diff** lists added, removed and changed files and
 locked dependencies against the last approved release. For a first release, everything is new. Use
 that list to find the code to read. Start with build scripts (including the mod's own `build.rs`),

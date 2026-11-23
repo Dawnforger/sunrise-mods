@@ -156,7 +156,7 @@ text_type!(
 #[serde(deny_unknown_fields)]
 pub struct ReleaseWorkflow {
     #[serde(rename = "uses")]
-    pub _uses: WorkflowUse,
+    pub uses: WorkflowUse,
 }
 text_type!(
     HttpsUrl,
@@ -185,6 +185,12 @@ fn web_url(s: &str) -> bool {
 #[serde(transparent)]
 pub struct RepositoryId(std::num::NonZeroU64);
 
+impl RepositoryId {
+    pub fn get(self) -> u64 {
+        self.0.get()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum PackagePath {
@@ -210,14 +216,14 @@ pub enum Kind {
     Datapack,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Watched {
     #[serde(default)]
     pub repository: Vec<Repository>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Repository {
     pub id: RepositoryId,
@@ -225,7 +231,7 @@ pub struct Repository {
     pub package: Vec<Package>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Package {
     pub path: PackagePath,
@@ -262,7 +268,7 @@ pub struct Project {
     pub _registered: CalendarDate,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Release {
     pub version: Version,
@@ -276,7 +282,7 @@ pub struct Release {
     pub dependencies: Vec<Dependency>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Asset {
     pub url: HttpsUrl,
@@ -285,7 +291,7 @@ pub struct Asset {
     pub attestation: HttpsUrl,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
     #[serde(rename = "mod")]
@@ -294,7 +300,7 @@ pub struct Dependency {
     pub required: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Page {
     pub name: Text,
@@ -311,7 +317,7 @@ pub struct Page {
     pub screenshots: Vec<Screenshot>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Screenshot {
     pub path: RelativePath,

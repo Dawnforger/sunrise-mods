@@ -4,13 +4,13 @@ on:
   workflow_call:
     inputs:
       source-artifact:
-        description: Artifact from this run containing one unpacked release at its root, including hidden files.
+        description: ID of this run's artifact containing an unpacked release at its root, including hidden files.
         type: string
       source-path:
         description: Alternatively, a directory relative to the trusted registry checkout.
         type: string
       previous-artifact:
-        description: Optional artifact containing the unpacked last approved release, including hidden files.
+        description: Optional ID of this run's artifact containing the unpacked last approved release, including hidden files.
         type: string
       previous-path:
         description: Alternatively, a previous release directory relative to the trusted checkout.
@@ -18,6 +18,16 @@ on:
       fixture:
         description: For scan-test.yml only; assert the outcome of a repository fixture.
         type: string
+    outputs:
+      attempt:
+        description: Run attempt that produced the summary.
+        value: ${{ jobs.scan.outputs.attempt }}
+      summary-id:
+        description: ID of the scanner's report artifact.
+        value: ${{ jobs.scan.outputs.summary-id }}
+      summary-digest:
+        description: SHA-256 of the scanner's report artifact.
+        value: ${{ jobs.scan.outputs.summary-digest }}
 
 permissions:
   contents: read
@@ -25,6 +35,11 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    cache-mode: none
+    outputs:
+      attempt: ${{ github.run_attempt }}
+      summary-id: ${{ steps.summary.outputs.artifact-id }}
+      summary-digest: ${{ steps.summary.outputs.artifact-digest }}
     # Fixtures took under four seconds per scan locally; leave room for cold tool pulls and real mod locks.
     timeout-minutes: 10
     steps:
@@ -61,12 +76,12 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: inputs.source-artifact != ''
         with:
-          name: ${{ inputs.source-artifact }}
+          artifact-ids: ${{ inputs.source-artifact }}
           path: ${{ runner.temp }}/scan-input/source
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: inputs.previous-artifact != ''
         with:
-          name: ${{ inputs.previous-artifact }}
+          artifact-ids: ${{ inputs.previous-artifact }}
           path: ${{ runner.temp }}/scan-input/previous
       - name: Scan without running release code
         id: scan
@@ -79,8 +94,9 @@ jobs:
         run: |
           python3 -I scanner/workflow.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: summary
         if: always() && steps.scan.outcome != 'skipped' && hashFiles('scan-output/summary.md') != ''
         with:
-          name: scan-summary${{ inputs.fixture != '' && format('-{0}', inputs.fixture) || '' }}
+          name: scan-summary-${{ github.run_attempt }}${{ inputs.fixture != '' && format('-{0}', inputs.fixture) || '' }}
           path: scan-output/summary.md
           if-no-files-found: error
