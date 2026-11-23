@@ -22,7 +22,6 @@ ICON_LIMIT = 256 << 10  # sunrise_mod_package::icon::MAX_ICON.
 SCREENSHOT_LIMIT = 5 << 20  # sunrise_mod_package::page::MAX_SCREENSHOT_BYTES.
 PROJECT = re.compile(r"[0-9A-Za-z]{8}")  # Same Modrinth ID rule as registry-bot.
 IMAGE = re.compile(r"([0-9a-f]{64})\.(png|jpg)")
-SNAPSHOT = re.compile(r"v2-snapshot-([1-9][0-9]*)")
 ERRORS = (KeyError, OSError, TypeError, ValueError, tarfile.TarError, subprocess.CalledProcessError)
 
 
@@ -149,30 +148,30 @@ def read_deployed(root, key, bot):
     if deployed is None:
         return None
     run_id, deploy_attempt, sha = deployed
-    snapshots = []
+    tree_sha = gh_api(f"git/commits/{sha}")["tree"]["sha"]
+    for component in ("registry", "index-key.pub"):
+        tree = gh_api(f"git/trees/{tree_sha}")
+        entry = next((row for row in tree["tree"] if row["path"] == component), None)
+        if entry is None:
+            if tree["truncated"]:
+                raise ValueError("cannot establish whether the last Pages deployment had a v2 key")
+            return None  # Confirmed legacy-only, not a missing v2 artifact.
+        tree_sha = entry["sha"]
+
+    # A deploy-only retry can reuse an earlier assembly. Resolve that attempt
+    # from the jobs, not from which snapshots happen to be retained today.
+    assembly = None
     for page in itertools.count(1):
-        result = gh_api(f"actions/runs/{run_id}/artifacts?per_page=100&page={page}")
-        if not result["artifacts"]:
+        jobs = gh_api(f"actions/runs/{run_id}/jobs?filter=all&per_page=100&page={page}")["jobs"]
+        for job in jobs:
+            if (job["name"] == "assemble" and job["run_attempt"] <= deploy_attempt
+                    and (assembly is None or job["run_attempt"] > assembly["run_attempt"])):
+                assembly = job
+        if len(jobs) < 100:
             break
-        for artifact in result["artifacts"]:
-            match = SNAPSHOT.fullmatch(artifact["name"])
-            if match and int(match[1]) <= deploy_attempt:
-                snapshots.append((int(match[1]), artifact["name"], artifact["expired"]))
-    # A deploy-only retry can use assembly from an earlier attempt. A *later*
-    # assembly never replaces the immutable artifact for the actual deployment.
-    if not snapshots:
-        commit = gh_api(f"git/commits/{sha}")
-        tree = gh_api(f"git/trees/{commit['tree']['sha']}")
-        registry = next((row for row in tree["tree"] if row["path"] == "registry"), None)
-        if registry is None:
-            return None
-        files = gh_api(f"git/trees/{registry['sha']}")
-        if not any(row["path"] == "index-key.pub" for row in files["tree"]):
-            return None  # Confirmed that this was a legacy-only deploy, not a missing v2 artifact.
-        raise ValueError("the last v2 deployment has no retained snapshot artifact")
-    _, name, expired = max(snapshots)
-    if expired:
-        raise ValueError("the last v2 deployment's snapshot artifact expired")
+    if assembly is None or assembly["conclusion"] != "success":
+        raise ValueError("cannot identify the assembly job for the last v2 deployment")
+    name = f"v2-snapshot-{assembly['run_attempt']}"
     subprocess.run(["gh", "run", "download", run_id, "--repo", os.environ["GITHUB_REPOSITORY"],
                     "--name", name, "--dir", str(root)], check=True, capture_output=True)
     index = verify(root, key, bot)
@@ -260,9 +259,9 @@ def guard_deploy(root, key, bot, carried):
             deployed = read_deployed(Path(work) / "deployed", key, bot)
         except ERRORS as error:
             print(f"registry v2: unable to verify the stored deployment snapshot: {reason(error)}")
-            if live is None:
-                raise ValueError("NO_AUTHENTICATED_V2_SNAPSHOT: cannot verify the deployed serial") from error
-            deployed = None
+            # A valid CDN response can still be stale. Only a confirmed legacy-only
+            # (or absent) deployment can dispense with the stored serial.
+            raise ValueError("NO_AUTHENTICATED_V2_SNAPSHOT: cannot verify the deployed serial") from error
         if live is None and deployed is None and (live_unavailable or carried):
             raise ValueError("NO_AUTHENTICATED_V2_SNAPSHOT: cannot verify the deployed serial")
         for previous in (live, deployed):

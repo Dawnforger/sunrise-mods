@@ -205,13 +205,16 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
 - `registry-bot verify-index <index> <sig> --key <pub>` checks the exact bytes and the index schema.
 
 The publish workflow uses the current UTC epoch second as the next serial. Signing and deployment
-both require the current tip of `main`. The deployment checks the signed serial again immediately
-before publishing. Assembly verifies the index and images and checks that the Pages archive will
-include them. If the new catalogue fails, the workflow uses the last complete signed snapshot,
-from Pages first or from the last successful Pages deployment's retained artifact. It deploys the
-legacy update and reports the v2 failure. If neither source can be authenticated, it reports
-`NO_AUTHENTICATED_V2_SNAPSHOT` and leaves the entire site unchanged. Without a committed public
-key, the publish does not contact the v2 services and deploys only the legacy site. A separate
+both require the current tip of `main`. Immediately before publishing, deployment compares the
+candidate's signed serial with the verified live index and the snapshot used by the last successful
+Pages deployment. A valid live response can lag that deployment, so it cannot replace a missing
+or unverifiable snapshot from a keyed deployment. Assembly verifies the index and images and
+checks that the Pages archive will include them. If the new catalogue fails, the workflow uses the
+last complete signed snapshot, from Pages first or from the last successful deployment's retained
+artifact. It deploys the legacy update and reports the v2 failure. If neither source can be
+recovered, or the deployed serial cannot be authenticated, it reports `NO_AUTHENTICATED_V2_SNAPSHOT`
+and leaves the entire site unchanged. Without a committed public key, the publish does not contact
+the v2 services and deploys only the legacy site. A separate
 scheduled workflow detects new offered builds and requests a publish on `main` without
 committing generated files.
 

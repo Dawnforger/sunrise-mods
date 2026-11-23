@@ -112,8 +112,8 @@ jobs:
           fi
           "$bot" builds --out offered-builds.json
           cache=() after=()
-          # Live unavailability prevents reuse, not generation. The deploy job still
-          # requires the authenticated live serial or its last deployed snapshot.
+          # Live unavailability prevents reuse, not generation. Deploy checks the
+          # retained snapshot for the last keyed deployment as well as live Pages.
           if python3 -I .github/registry-v2/live.py --bot "$bot" --out v2-previous \
               && [[ -f v2-previous/index.json ]]; then
             cache=(--cache v2-previous/index.json)

@@ -147,8 +147,7 @@ class Publish(unittest.TestCase):
             archived.assert_not_called()
         self.assert_site("older")
 
-    def test_live_read_failure_uses_last_successful_deploy_run_artifact(self):
-        published = self.snapshot(self.root / "previous", "older")
+    def deployed_api(self, *, assembly_attempts, keyed=True):
         env = {"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "example/mods"}
         sha = "c" * 40
         log_url = f"{env['GITHUB_SERVER_URL']}/{env['GITHUB_REPOSITORY']}/actions/runs/70/job/80"
@@ -159,12 +158,22 @@ class Publish(unittest.TestCase):
             "actions/runs/70": {"head_branch": "main", "path": ".github/workflows/publish.yml", "head_sha": sha,
                                 "conclusion": "failure"},  # Pages succeeded before v2 was reported red.
             "actions/jobs/80": {"run_id": 70, "name": "deploy", "run_attempt": 2, "head_sha": sha},
-            "actions/runs/70/artifacts?per_page=100&page=1": {"artifacts": [
-                {"name": "v2-snapshot-3", "expired": False},  # A later assembly did not deploy.
-                {"name": "v2-snapshot-1", "expired": False},  # Attempt 2 retried only deploy.
+            f"git/commits/{sha}": {"tree": {"sha": "d" * 40}},
+            f"git/trees/{'d' * 40}": {"truncated": False, "tree": [{"path": "registry", "sha": "e" * 40}]},
+            f"git/trees/{'e' * 40}": {"truncated": False, "tree": (
+                [{"path": "index-key.pub", "sha": "f" * 40}] if keyed else []
+            )},
+            "actions/runs/70/jobs?filter=all&per_page=100&page=1": {"jobs": [
+                {"name": "assemble", "run_attempt": attempt, "conclusion": "success"}
+                for attempt in assembly_attempts
             ]},
-            "actions/runs/70/artifacts?per_page=100&page=2": {"artifacts": []},
         }
+        return env, api
+
+    def test_live_read_failure_uses_last_successful_deploy_run_artifact(self):
+        published = self.snapshot(self.root / "previous", "older")
+        # Attempt 2 retried only deploy; the later assembly in attempt 3 did not deploy.
+        env, api = self.deployed_api(assembly_attempts=(3, 1))
         run = subprocess.run
         downloads = []
 
@@ -183,6 +192,38 @@ class Publish(unittest.TestCase):
             live.guard_deploy(self.site / "v2", KEY, self.verifier, carried=True)
         self.assertEqual(downloads, ["70", "70"])
         self.assert_site("older")
+
+    def test_deploy_retry_refuses_stale_pages_when_the_deployed_snapshot_is_unavailable(self):
+        stale = self.snapshot(self.root / "stale", "older")
+        env, api = self.deployed_api(assembly_attempts=(3, 2, 1))
+        run = subprocess.run
+        downloads = []
+
+        def run_with_missing_snapshot(command, **kwargs):
+            if command[:3] == ["gh", "run", "download"]:
+                name = command[command.index("--name") + 1]
+                downloads.append(name)
+                if name == "v2-snapshot-1":
+                    shutil.copytree(stale, command[-1])  # A stale artifact is still retained.
+                    return subprocess.CompletedProcess(command, 0)
+                # The successful deployment used attempt 2's newer signed catalogue.
+                raise subprocess.CalledProcessError(1, command)
+            return run(command, **kwargs)
+
+        with (patch.dict(os.environ, env), patch.object(live, "gh_api", side_effect=api.__getitem__),
+              self.live_from(stale), patch.object(subprocess, "run", side_effect=run_with_missing_snapshot)):
+            with self.assertRaisesRegex(ValueError, "NO_AUTHENTICATED_V2_SNAPSHOT"):
+                live.guard_deploy(stale, KEY, self.verifier, carried=True)
+        self.assertEqual(downloads, ["v2-snapshot-2"])
+
+    def test_first_keyed_deploy_can_follow_a_confirmed_legacy_only_deploy(self):
+        candidate = self.snapshot(self.root / "candidate", "older")
+        env, api = self.deployed_api(assembly_attempts=(), keyed=False)
+        with (patch.dict(os.environ, env), patch.object(live, "gh_api", side_effect=api.__getitem__) as request,
+              self.live_from(self.root / "not-published")):
+            live.guard_deploy(candidate, KEY, self.verifier, carried=False)
+        self.assertNotIn("actions/runs/70/jobs?filter=all&per_page=100&page=1",
+                         [call.args[0] for call in request.call_args_list])
 
     def test_no_key_never_reads_v2_and_keeps_legacy_site(self):
         with patch.object(live, "download") as download, patch.object(live, "gh_api") as api:
