@@ -287,11 +287,11 @@ change!(
     "calendar date"
 );
 change!(
-    bad_published_date,
+    bad_published_time,
     RELEASE,
+    "2026-11-23T12:00:00Z",
     "2026-11-23",
-    "today",
-    "calendar date"
+    "UTC time"
 );
 change!(
     bad_revocation_date,

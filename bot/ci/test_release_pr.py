@@ -169,6 +169,15 @@ class ReleasePRTests(unittest.TestCase):
         self.assertIn("Rerun all jobs", posts[-2]["body"])
         self.assertEqual((posts[-1]["state"], posts[-1]["description"]), ("failure", "Rerun all jobs"))
 
+    def test_a_missing_comparison_is_named_above_the_scan_and_still_passes(self):
+        jobs = self.report_jobs()
+        self.assertNotIn("No comparison", self.run_report(jobs)[-2]["body"])
+        jobs["verify"]["outputs"]["comparison"] = "missing"
+        posts = self.run_report(jobs)
+        body = posts[-2]["body"]
+        self.assertLess(body.index("No comparison with the last approved release"), body.index("A trusted scan report."))
+        self.assertEqual(posts[-1]["state"], "success")
+
     def test_scanner_report_digest_is_from_trusted_job_output(self):
         jobs = self.report_jobs()
         with zipfile.ZipFile(self.folder / "summary.zip", "w") as archive:

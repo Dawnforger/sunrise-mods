@@ -1,6 +1,6 @@
 version = "5.3.1"
 tag = "v5.3.1"
-published = "2026-11-23"
+published = "2026-11-23T06:54:18Z"
 sunrise = "dev-2026-11-22-7cfdf81"
 workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
 dependencies = []

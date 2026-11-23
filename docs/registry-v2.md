@@ -72,7 +72,7 @@ takedown. The checker checks a checkout, not the history of that file.
 | --- | --- |
 | `version` | Package semantic version. It matches the filename without `.toml`. |
 | `tag` | Git tag. Use `v<version>` at the repository root and `<mod>/v<version>` in a subfolder. |
-| `published` | Publication date. |
+| `published` | GitHub's publication time of the release, in UTC to the second (`2026-11-23T06:55:18Z`). The index publishes only its date. |
 | `sunrise` | The stable tag (for example `26.3-0.1.0`) or exact Nightly/Dev build ID (`<channel>-<YYYY-MM-DD>-<commit>`) the package was made for. A rolling channel name is not a build ID. |
 | `workflow` | Exact signer workflow ref recorded by the attestation: the project's workflow path followed by `@refs/tags/release-v<number>`. Existing releases keep their ref when `release-workflow.toml` selects a new tag. |
 | `[file]` | The `.smod` asset. Native mods ship source and a lockfile, not a binary. |
@@ -237,8 +237,12 @@ repository by its numeric GitHub ID. A rename opens a separate maintenance PR fo
 it does not change project IDs or rewrite old release URLs. At registration the watcher considers
 only the newest publication, by GitHub's timestamp. If its signature cannot be determined, the
 watcher reports that and does not fall back to an older release. After an approval, only releases
-published later than the latest approved release are eligible. The row still records just the date.
-The same publication order selects the previous approved package for the scanner. A project has
+published later than the latest approved release are eligible. That order comes from the publication
+times in the committed release rows, not from what the author's repository shows now, so taking a
+release down does not stop the watcher. The same order selects the previous approved package for the
+scanner. When its tag, package or attestation is no longer published, a fully verified new release
+still goes to review: the scan has nothing to compare against and the release check's comment says so.
+Taking a package down never lifts a takedown in `revoked.toml`. A project has
 at most one open release PR, and an existing bot PR (including a closed, unmerged PR) makes that
 version handled. The watcher does not recreate it. Drafts never count; signed prereleases can count.
 Observation and publication failures appear in the watch summary.

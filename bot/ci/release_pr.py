@@ -150,6 +150,7 @@ def verify(out):
     require(actual == expected, "PR files are not exactly the release row and page regenerated from the attested assets")
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
         print("previous=" + str((out / "previous").is_dir()).lower(), file=stream)
+        print("comparison=" + ("missing" if (out / "previous-unavailable").exists() else "available"), file=stream)
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
         print("Verified the PR file scope, both attestations, hashes, package manifest, pinned build and resolved page.", file=stream)
 
@@ -310,6 +311,10 @@ def report(folder):
             description = "Rerun all jobs"
             body += "\n**Rerun all jobs**: no scanner report was available from this attempt.\n"
         else:
+            if jobs["verify"]["outputs"].get("comparison") == "missing":
+                body += ("\n**No comparison with the last approved release**: its tag, package or attestation is no "
+                         "longer published in the author's repository, so the scan below treats every file and "
+                         "dependency as new. Review this release in full.\n")
             body += "\n" + scan_summary(folder, scan)
             success = jobs.keys() == REQUIRED_JOBS and all(job["result"] == "success" for job in jobs.values())
             if success:
