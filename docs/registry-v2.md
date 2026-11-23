@@ -298,9 +298,20 @@ still goes to review: the scan has nothing to compare against and the release ch
 Taking a package down never lifts a takedown in `revoked.toml`. A project has
 at most one open release PR, and an existing bot PR makes that version handled: an open one, a merged
 one, and a closed, unmerged one while its `release/<project>/<version>` branch still exists. The watcher
-does not recreate it. Closing a release PR and keeping its branch refuses that version; closing it and
-deleting the branch withdraws the PR, and the watcher opens the release again while it is still eligible. Drafts never count; signed prereleases can count.
+does not recreate it. Drafts never count; signed prereleases can count.
 Observation and publication failures appear in the watch summary.
+
+### Refusing or withdrawing a release
+
+Closing a release PR without merging does one of two things, decided by its branch:
+
+- **Refuse the release:** close the PR and keep its `release/<project>/<version>` branch. The watcher
+  never opens that version again. The author's next release opens a new PR.
+- **Withdraw the PR:** close it and delete its branch, for example when the PR must be generated again
+  after the registry's format changes. The next watch run opens the same release in a new PR, as long
+  as it is still published and newer than the project's latest approved release.
+
+Deleting the branch of a refused release later withdraws the refusal the same way.
 
 ### Libraries
 
