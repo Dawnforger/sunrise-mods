@@ -15,6 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The attestation proves origin: these bytes came from the author's repository running this shared workflow.
+  # It does not prove the bytes equal the tagged commit; the registry bot and reviewer judge the released bytes.
   build:
     name: Check and package source
     if: github.event_name == 'push' && github.ref_type == 'tag' && !github.event.deleted
@@ -111,8 +113,6 @@ jobs:
               version = subprocess.check_output([binary, '--version'], cwd=folder, text=True).strip()
               require(version == f'cargo-sunrise-mod commit {commit} native-contract {info["native_contract"]}',
                       'the verified tool disagrees with its signed tool.json')
-          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as f:
-              print(work, file=f)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
               print(f'Signed Sunrise mod tool commit: `{commit}`', file=f)
           PY
@@ -122,21 +122,27 @@ jobs:
         # then uses the runner's rustup to install the exact compiler the SDK names.
         run: |
           cd -- "$GITHUB_WORKSPACE/$PACKAGE_PATH"
-          cargo sunrise-mod check --release "$GITHUB_REF_NAME"
-          cargo sunrise-mod build
           python3 -I - <<'PY'
-          import os, re, shutil, tomllib
+          import os, re, shutil, subprocess, tomllib
           from pathlib import Path
 
           with Path('sunrise-mod.toml').open('rb') as f:
               mod_id = tomllib.load(f)['id']
-          if not re.fullmatch(r'[a-z0-9_]{1,64}', mod_id):
+          if not isinstance(mod_id, str) or not re.fullmatch(r'[a-z0-9_]{1,64}', mod_id):
               raise SystemExit('expected a valid mod id for the release filenames')
-          version = os.environ['GITHUB_REF_NAME'].split('/')[-1][1:]
-          assets = Path(os.environ['RUNNER_TEMP']) / 'sunrise-assets'
+          tag = os.environ['GITHUB_REF_NAME']
+          version = tag.rsplit('/', 1)[-1][1:]
+          temp = Path(os.environ['RUNNER_TEMP'])
+          # Calling the verified executable directly bypasses package-local Cargo aliases.
+          tool = [temp / 'sunrise-tool/cargo-sunrise-mod', 'sunrise-mod']
+          subprocess.run([*tool, 'check', '--release', tag], check=True)
+          outputs = {ext: Path('target/sunrise-mod') / (mod_id + ext) for ext in ('.smod', '.page.tar')}
+          for source in outputs.values():
+              source.unlink(missing_ok=True)
+          subprocess.run([*tool, 'build'], check=True)
+          assets = temp / 'sunrise-assets'
           assets.mkdir()
-          for extension in ('.smod', '.page.tar'):
-              source = Path('target/sunrise-mod') / (mod_id + extension)
+          for extension, source in outputs.items():
               if source.is_symlink() or not source.is_file():
                   raise SystemExit(f'cargo sunrise-mod build did not produce {source}')
               shutil.copyfile(source, assets / f'{mod_id}-{version}{extension}')
@@ -196,6 +202,34 @@ jobs:
                   print(f'{kind}={name}', f'{kind}_digest=sha256:{digest}', sep='\n', file=out)
           PY
 
+      - name: Check the remote tag and require an empty draft before attesting
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The fully-qualified ref selects the tag, not a same-named branch, and the
+          # commits endpoint resolves annotated tags to their underlying commit.
+          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF" --jq .sha)
+          if [[ "$remote_sha" != "$GITHUB_SHA" ]]; then
+            printf 'Tag %s now points to %s, not %s; refusing to release.\n' "$GITHUB_REF_NAME" "$remote_sha" "$GITHUB_SHA" >&2
+            exit 1
+          fi
+          if release=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft,assets 2>&1); then
+            if ! jq -e '.isDraft == true' <<< "$release" > /dev/null; then
+              printf 'Release %s is already published; refusing to change it.\n' "$GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+            if ! jq -e '.assets == []' <<< "$release" > /dev/null; then
+              printf 'Draft release %s already has assets; refusing to reuse it.\n' "$GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+          elif [[ "$release" == 'release not found' ]]; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "$GITHUB_REF_NAME" --notes ''
+          else
+            printf 'Could not look up release %s: %s\n' "$GITHUB_REF_NAME" "$release" >&2
+            exit 1
+          fi
+
       - name: Attest the source package
         id: mod-attestation
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -210,7 +244,7 @@ jobs:
           subject-name: ${{ steps.assets.outputs.page }}
           subject-digest: ${{ steps.assets.outputs.page_digest }}
 
-      - name: Release both assets and their Sigstore bundles without replacing existing files
+      - name: Upload both assets and their Sigstore bundles to the draft
         working-directory: ${{ runner.temp }}/sunrise-assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -219,17 +253,28 @@ jobs:
           MOD_BUNDLE: ${{ steps.mod-attestation.outputs.bundle-path }}
           PAGE_BUNDLE: ${{ steps.page-attestation.outputs.bundle-path }}
         run: |
-          cp -- "$MOD_BUNDLE" "$MOD.sigstore.json"
-          cp -- "$PAGE_BUNDLE" "$PAGE.sigstore.json"
-          assets=("$MOD" "$PAGE" "$MOD.sigstore.json" "$PAGE.sigstore.json")
-          if error=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1); then
-            # Without --clobber, gh rejects a same-name asset before uploading any files.
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
-          elif [[ "$error" == 'release not found' ]]; then
-            # gh stages a new release as a draft until all four uploads complete.
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag --title "$GITHUB_REF_NAME" --notes ''
-          else
-            printf 'Could not look up release %s: %s\n' "$GITHUB_REF_NAME" "$error" >&2
+          release=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft,assets)
+          if ! jq -e '.isDraft == true and .assets == []' <<< "$release" > /dev/null; then
+            printf 'Release %s is no longer an empty draft; refusing to upload.\n' "$GITHUB_REF_NAME" >&2
             exit 1
           fi
+          cp -- "$MOD_BUNDLE" "$MOD.sigstore.json"
+          cp -- "$PAGE_BUNDLE" "$PAGE.sigstore.json"
+          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF" --jq .sha)
+          if [[ "$remote_sha" != "$GITHUB_SHA" ]]; then
+            printf 'Tag %s moved while attesting; leaving the draft untouched.\n' "$GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$MOD" "$PAGE" "$MOD.sigstore.json" "$PAGE.sigstore.json" \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Publish the completed draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF" --jq .sha)
+          if [[ "$remote_sha" != "$GITHUB_SHA" ]]; then
+            printf 'Tag %s moved while uploading; leaving the release as a draft.\n' "$GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
