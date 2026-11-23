@@ -1,0 +1,28 @@
+name: Register a repository
+description: Ask for your mod's repository to be added to the registry, so its releases are picked up
+title: "Register <owner>/<repository>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A maintainer adds your repository to the registry from this issue. Registering lists nothing by itself: a project appears in Discover after its first release through `cargo sunrise-mod release` is reviewed and merged.
+
+        Open this issue from an account that administers the repository.
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: The link to your public GitHub repository
+      placeholder: https://github.com/<owner>/<repository>
+    validations:
+      required: true
+  - type: textarea
+    id: packages
+    attributes:
+      label: Package folders
+      description: Only when the repository holds several mods. One folder per line, each holding a `sunrise-mod.toml`. Leave empty when the mod is at the repository's root.
+  - type: input
+    id: branch
+    attributes:
+      label: Branch
+      description: Only when the mod is not on the repository's default branch

@@ -15,8 +15,10 @@ It is not live yet; the current registry and the instructions below are unchange
    for each package, as [the reference](docs/registry-v2.md) describes. Use GitHub's numeric repository
    ID (`https://api.github.com/repos/<owner>/<name>`, field `id`) and pick a new project ID of eight
    characters from `0-9`, `A-Z` and `a-z`. That ID is permanent; the project appears in Discover after
-   its first release is approved. A form at [Submit a mod](https://playsunrise.net/mods/submit) that
-   opens this pull request for you is coming.
+   its first release is approved. Or open a
+   [Register a repository](https://github.com/sunrise-org/sunrise-mods/issues/new?template=register.yml)
+   issue with the link to your repository, and a maintainer opens that pull request. A form at
+   [Submit a mod](https://playsunrise.net/mods/submit) that opens it for you is coming.
 3. **Release from your package folder.** After registration merges, run `cargo sunrise-mod release <version>`.
    The command updates the caller workflow and bumps the manifest version, then tags and pushes.
    The shared workflow publishes a signed `.smod` and a separate signed page bundle. A native mod
