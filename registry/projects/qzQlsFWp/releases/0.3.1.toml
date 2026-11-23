@@ -1,0 +1,19 @@
+version = "0.3.1"
+kind = "native-mod"
+tag = "v0.3.1"
+published = "2026-11-23T22:08:35Z"
+sunrise = "dev-2026-11-23-ebd2d22"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/yungs_extras/releases/download/v0.3.1/yungsextras-0.3.1.smod"
+size = 163257
+sha256 = "b264771795247ce49ba690de7b1560cfbe983ed3be38ac8a0d975d559c4a73cd"
+attestation = "https://github.com/arismoko/yungs_extras/releases/download/v0.3.1/yungsextras-0.3.1.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/yungs_extras/releases/download/v0.3.1/yungsextras-0.3.1.page.tar"
+size = 1010176
+sha256 = "fe5b53aac1183d27b97cf0cab870f5b886daa2a8ed153effd38cbd9e31cf81a9"
+attestation = "https://github.com/arismoko/yungs_extras/releases/download/v0.3.1/yungsextras-0.3.1.page.tar.sigstore.json"
