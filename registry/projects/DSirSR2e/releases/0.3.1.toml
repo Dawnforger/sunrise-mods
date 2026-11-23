@@ -1,0 +1,18 @@
+version = "0.3.1"
+tag = "v0.3.1"
+published = "2026-11-23T07:20:26Z"
+sunrise = "nightly-2026-11-20-9425651"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/yungs_better_end_island/releases/download/v0.3.1/betterendisland-0.3.1.smod"
+size = 216209
+sha256 = "509c1c4ebefddb71fb81314d8f8a0829aeea100deb016248bdc96157dceb58e9"
+attestation = "https://github.com/arismoko/yungs_better_end_island/releases/download/v0.3.1/betterendisland-0.3.1.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/yungs_better_end_island/releases/download/v0.3.1/betterendisland-0.3.1.page.tar"
+size = 630784
+sha256 = "bc18873f1faf1eab683eafa08ddcaddf8c3750c03d6d38447f4b094b4749ff0d"
+attestation = "https://github.com/arismoko/yungs_better_end_island/releases/download/v0.3.1/betterendisland-0.3.1.page.tar.sigstore.json"
