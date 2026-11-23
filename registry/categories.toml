@@ -1,0 +1,98 @@
+# Mod category names from modrinth/code at 7f6963c:
+# apps/labrinth/fixtures/labrinth-seed-data-202508052143.sql:3–80, project type 1.
+# Icon names refer to Lucide (ISC); no Modrinth artwork is used.
+
+[[category]]
+id = "adventure"
+icon = "compass"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "cursed"
+icon = "skull"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "decoration"
+icon = "palette"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "economy"
+icon = "coins"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "equipment"
+icon = "shield"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "food"
+icon = "apple"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "game-mechanics"
+icon = "sliders-horizontal"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "library"
+icon = "library"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "magic"
+icon = "wand-sparkles"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "management"
+icon = "clipboard-list"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "minigame"
+icon = "gamepad-2"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "mobs"
+icon = "paw-print"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "optimization"
+icon = "gauge"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "social"
+icon = "users"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "storage"
+icon = "archive"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "technology"
+icon = "cpu"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "transportation"
+icon = "train-front"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "utility"
+icon = "wrench"
+kinds = ["mod", "native-mod"]
+
+[[category]]
+id = "worldgen"
+icon = "mountain"
+kinds = ["mod", "native-mod"]

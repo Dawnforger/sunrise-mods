@@ -1,0 +1,10 @@
+name = "Wayfinder Alternate"
+summary = "Find your way using the new map display."
+description = "Wayfinder Alternate adds a map display that follows you as you explore. Mark landmarks, name spots you want to revisit, and hide the display when you no longer need it."
+authors = ["Other"]
+license = "MIT"
+icon = "icon.png"
+
+[[screenshots]]
+path = "gallery/map #1 %.png"
+caption = ""

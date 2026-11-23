@@ -1,0 +1,20 @@
+version = "1.2.0"
+tag = "v1.2.0"
+published = "2026-11-23"
+sunrise = "26.3-0.1.0"
+
+[file]
+url = "https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.smod"
+size = 123456
+sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+attestation = "https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.smod.sigstore.json"
+
+[page]
+url = "https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.page.tar"
+size = 1234
+sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+attestation = "https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.page.tar.sigstore.json"
+
+[[dependencies]]
+mod = "map_markers"
+required = false

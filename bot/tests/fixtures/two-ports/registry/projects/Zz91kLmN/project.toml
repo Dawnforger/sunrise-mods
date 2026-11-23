@@ -1,0 +1,9 @@
+id = "Zz91kLmN"
+slug = "wayfinder-alternate"
+mod = "wayfinder"
+kind = "mod"
+owners = ["Other"]
+repository = 987654321
+path = "mods/wayfinder"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-22"

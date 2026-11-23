@@ -1,0 +1,1 @@
+uses = "sunrise-org/sunrise-mods/.github/workflows/release.yml@release-v1"

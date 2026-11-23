@@ -1,0 +1,36 @@
+name: registry-v2
+
+on:
+  pull_request:
+    paths:
+      - 'bot/**'
+      - 'registry/**'
+      - '.github/workflows/bot.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'bot/**'
+      - 'registry/**'
+      - '.github/workflows/bot.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    defaults:
+      run:
+        working-directory: bot
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - name: Check the v2 registry
+        working-directory: .
+        run: cargo run --locked --manifest-path bot/Cargo.toml -- check .
