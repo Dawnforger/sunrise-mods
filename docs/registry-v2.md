@@ -11,7 +11,8 @@ V2 uses `registry/` for its source files. The launcher and site will read `v2/in
 All TOML tables reject unknown keys. Text fields described as dates use quoted `YYYY-MM-DD` strings.
 `project` and project `id` values are eight case-sensitive base62 characters (`0–9`, `A–Z`, `a–z`).
 The registration service assigns each project ID once and never reuses it. `mod` is the in-game ID
-from `sunrise-mod.toml`. It uses lowercase ASCII letters, digits and underscores.
+from `sunrise-mod.toml`. It follows Sunrise's mod-ID rules, including the length and reserved
+Windows device names.
 
 Paths in the layout use forward slashes. They may not be absolute, contain backslashes or drive
 prefixes, or contain empty, `.` or `..` segments. A package path may be exactly `.` for the root
@@ -46,7 +47,7 @@ The registration service writes this file when the project is registered.
 | --- | --- |
 | `id` | Permanent project ID. It matches the directory name. |
 | `slug` | Unique site page address. It uses `a–z`, `0–9`, `-`, and `_` and may change in a reviewed PR. |
-| `mod` | In-game ID. Projects in different repositories can share it. Two packages in one repository cannot, because release tags and caller workflow names use the in-game ID. |
+| `mod` | In-game ID. Only two subfolder packages in the same repository cannot share it, because both use it in release tags and caller workflow names. A root package has its own tag and caller names. |
 | `kind` | `mod`, `native-mod`, `modpack`, `resourcepack`, `shader`, `shaderpack` or `datapack`. Pack-specific fields are not defined here. |
 | `owners` | GitHub logins allowed to release. This is not the list of page credits. |
 | `repository`, `path` | Numeric repository ID and package path, matching `watched.toml`. |
@@ -63,15 +64,19 @@ takedown. The checker checks a checkout, not the history of that file.
 | `version` | Package semantic version. It matches the filename without `.toml`. |
 | `tag` | Git tag. Use `v<version>` at the repository root and `<mod>/v<version>` in a subfolder. |
 | `published` | Publication date. |
-| `sunrise` | The stable tag or Nightly/Dev build ID the package was made for. |
+| `sunrise` | The stable tag (for example `26.3-0.1.0`) or exact Nightly/Dev build ID (`<channel>-<YYYY-MM-DD>-<commit>`) the package was made for. A rolling channel name is not a build ID. |
+| `workflow` | Exact signer workflow ref recorded by the attestation: the project's workflow path followed by `@refs/tags/release-v<number>`. Existing releases keep their ref when `release-workflow.toml` selects a new tag. |
 | `[file]` | The `.smod` asset. Native mods ship source and a lockfile, not a binary. |
 | `[page]` | The separate page bundle. It is not part of the install or the published index. |
 | `[[dependencies]]` | Optional list. Each entry names a `mod` slot and whether it is `required`. An optional `project` pins a specific registered provider of that in-game ID. |
 
 Both asset tables give the HTTPS `url`, `size` in bytes, `sha256` (64 lowercase hexadecimal
-characters), and HTTPS `attestation` URL. The shared release workflow attests both assets with
-GitHub artifact attestations (Sigstore). The layout checker requires the fields but does not
-download the assets, compare hashes, or verify the attestations.
+characters), and HTTPS `attestation` URL. Both URLs use
+`https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>` with the release row's tag.
+The named assets are `<mod>-<version>.smod` and `<mod>-<version>.page.tar`; each bundle adds
+`.sigstore.json` to its asset's name. The owner/repo in a URL may reflect a repository's earlier
+name. The layout checker does not download the assets, compare hashes, or verify that each
+asset's GitHub artifact attestation (Sigstore) matches the registered repository and release ref.
 
 ### `registry/projects/<project>/page/`
 
@@ -91,14 +96,18 @@ optional list of 0–8 distinct category IDs that apply to the project's `kind`.
 free-form tags.
 
 All image paths are relative to the resolved `page.toml`: use `gallery/recipe.png`, not
-`page/gallery/recipe.png`. Each image must exist inside this folder and have a PNG or JPEG file
-signature. The maximum is 5 MiB per image.
+`page/gallery/recipe.png`. Each image must exist inside this folder. Screenshots are checked for
+a PNG or JPEG signature, a matching `.png`, `.jpg` or `.jpeg` extension, and the 5 MiB gallery
+limit. The icon follows the mod package's own PNG icon rules and must have a `.png` extension.
+Apart from `page.toml`, files not named in the page are rejected. The publisher serves only the
+validated images.
 
 ### `registry/fit/<project>.toml`
 
 CI writes `[[release]]` rows for the registered project in the filename. A row has an existing
-release `version` and `fits`, the list of exact Sunrise build IDs that release fits. A release and
-its build IDs do not repeat within the corresponding lists. An absent row means no computed fits.
+release `version` and `fits`, the list of exact Sunrise build IDs that release fits, using the
+same forms as `sunrise`. A release and its build IDs do not repeat within the corresponding
+lists. An absent row means no computed fits.
 
 ### `registry/revoked.toml`
 
@@ -114,8 +123,9 @@ contains the category names for project type `1` (`mod`, from
 `apps/labrinth/migrations/20210509010206_project_types.sql:3–9,20–22`). The project ID length and base62
 alphabet are from `apps/labrinth/src/database/models/ids.rs:29–30,236` and
 `apps/labrinth/migrations/20240115052708_base62-helper-functions.sql:5`. In `apps/labrinth/src/validate/project/`,
-`summary.rs:13`, `description.rs:17`, and `tags.rs:10` set the minimums and category cap. The image limit is
-`max_gallery_image_size` in `apps/labrinth/src/routes/internal/globals.rs:57`.
+`summary.rs:13`, `description.rs:17`, and `tags.rs:10` set the minimums and category cap. The screenshot
+limit is `max_gallery_image_size` in `apps/labrinth/src/routes/internal/globals.rs:57`, shared by the
+Sunrise page reader. The icon rules come from `sunrise_mod_package::icon::Icon`.
 
 ## Published index
 
@@ -137,8 +147,9 @@ resolved page. Missing links are `null`; absent categories are `[]`. Each screen
 `{ path, caption }`. Resolve image paths relative to the directory of `index.json`. They start with
 `pages/<project>/`; path components are URL-encoded where necessary.
 
-Each project's `releases` array contains rows with `version`, `published`, `sunrise`, `fits`, `file`,
-and `dependencies`. `fits` is an array of exact build IDs, empty until computed. `file` contains
+Each project's `releases` array contains rows with `version`, `published`, `sunrise`, `workflow`,
+`fits`, `file`, and `dependencies`. The release's `workflow` is an exact signer ref, not the project's
+bare workflow path. `fits` is an array of exact build IDs, empty until computed. `file` contains
 `url`, `size`, `sha256`, and `attestation`. Each dependency carries `mod`, `project` and `required`;
 a `null` `project` means the dependency does not pin a provider. The index omits the Git tag and
 page bundle. The launcher does not fetch the bundle to show the page or install the mod.
@@ -155,9 +166,10 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
    number or from the `sunrise` field alone.
 6. Treat `id` as the project identity, `slug` as the page address, and `mod` as a slot. No array order
    chooses a provider. Enable at most one provider per slot in a profile and never switch it silently.
-7. On install, check the `.smod` hash and verify its attestation against the registered repository ID
-   and workflow. Remember that identity per project. Verifying the catalogue is not a substitute for
-   verifying the package.
+7. Check each file's hash and verify its attestation against the registered repository ID and
+   that release's exact `workflow` ref. On install the launcher does this for the `.smod`. Remember
+   the registered repository and workflow path per project; use the approved ref for each release.
+   Verifying the catalogue is not a substitute for verifying the package.
 
 ## Local checks and example
 

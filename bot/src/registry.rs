@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use percent_encoding::percent_decode_str;
 use semver::Version;
 
 use crate::{
@@ -14,7 +15,7 @@ use crate::{
 pub struct Registry {
     pub categories: Vec<Category>,
     pub projects: BTreeMap<ProjectId, ProjectEntry>,
-    pub fits: BTreeMap<ProjectId, BTreeMap<Version, Vec<Text>>>,
+    pub fits: BTreeMap<ProjectId, BTreeMap<Version, Vec<BuildName>>>,
     pub revoked: Vec<Revocation>,
 }
 
@@ -112,7 +113,7 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
 
     let mut projects = BTreeMap::new();
     let mut slugs = BTreeSet::new();
-    let mut repositories_and_mods = BTreeSet::new();
+    let mut subfolder_mods = BTreeSet::new();
     for (name, entry) in project_dirs {
         let dir = projects_root.join(&name);
         let Ok(id) = ProjectId::parse(name.to_string_lossy().into_owned()) else {
@@ -169,8 +170,10 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
                     format!("duplicate slug {}", project.slug.as_str()),
                 );
             }
-            if !repositories_and_mods.insert((project.repository, project.mod_id.clone())) {
-                tree.problem(&project_path, "another package in this repository has the same in-game ID (shared tag and caller workflow names)");
+            if matches!(project.path, PackagePath::Folder(_))
+                && !subfolder_mods.insert((project.repository, project.mod_id.clone()))
+            {
+                tree.problem(&project_path, "another subfolder package in this repository has the same in-game ID (shared tag and caller workflow names)");
             }
             if project.workflow.as_str() != RELEASE_WORKFLOW {
                 tree.problem(
@@ -295,10 +298,48 @@ fn read_releases(
             if row.tag.as_str() != expected {
                 tree.problem(&file, format!("tag must be {expected}"));
             }
+            if row.workflow.as_str().split_once('@').map(|(path, _)| path)
+                != Some(project.workflow.as_str())
+            {
+                tree.problem(&file, "signer workflow path must match project.toml");
+            }
+            for (field, asset, suffix) in
+                [("file", &row.file, "smod"), ("page", &row.page, "page.tar")]
+            {
+                let name = format!("{}-{}.{suffix}", project.mod_id.as_str(), row.version);
+                let bundle = format!("{name}.sigstore.json");
+                for (key, url, name) in [
+                    ("url", &asset.url, &name),
+                    ("attestation", &asset.attestation, &bundle),
+                ] {
+                    if !release_download(url.as_str(), row.tag.as_str(), name) {
+                        tree.problem(&file, format!("{field}.{key} must be a GitHub release download HTTPS URL for {name} with the release tag"));
+                    }
+                }
+            }
         }
         releases.insert(version, row);
     }
     releases
+}
+
+fn release_download(url: &str, tag: &str, asset: &str) -> bool {
+    // Check the raw authority and repository path, then decode only the release tag and asset.
+    // GitHub's browser_download_url can percent-encode a tag such as wayfinder/v1.2.0.
+    let Some((repository, download)) = url
+        .strip_prefix("https://github.com/")
+        .and_then(|path| path.split_once("/releases/download/"))
+    else {
+        return false;
+    };
+    github_repository(repository)
+        && !download.contains(['?', '#'])
+        && download
+            .rsplit_once('/')
+            .is_some_and(|(tag_part, asset_part)| {
+                percent_decode_str(tag_part).eq(tag.bytes())
+                    && percent_decode_str(asset_part).eq(asset.bytes())
+            })
 }
 
 fn read_page(
@@ -363,8 +404,12 @@ fn read_page(
         .collect();
     for image in images {
         let path = dir.join(image.as_str());
-        if assets.contains(&path) {
-            tree.image(&path);
+        if assets.remove(&path) {
+            if image == &page.icon {
+                tree.icon(&path);
+            } else {
+                tree.screenshot(&path);
+            }
         } else {
             tree.problem(
                 &file,
@@ -375,6 +420,9 @@ fn read_page(
             );
         }
     }
+    for asset in assets {
+        tree.problem(&asset, "page file is not referenced by page.toml");
+    }
     Some(page)
 }
 
@@ -383,7 +431,7 @@ fn read_fits(
     dir: &Path,
     entry: Option<Entry>,
     projects: &BTreeMap<ProjectId, ProjectEntry>,
-) -> BTreeMap<ProjectId, BTreeMap<Version, Vec<Text>>> {
+) -> BTreeMap<ProjectId, BTreeMap<Version, Vec<BuildName>>> {
     let mut fits = BTreeMap::new();
     match entry {
         Some(Entry::Directory) => {}

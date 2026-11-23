@@ -99,6 +99,13 @@ change!(
     "unknown field"
 );
 change!(
+    unknown_repository_field,
+    WATCHED,
+    "name =",
+    "extra = true\nname =",
+    "unknown field"
+);
+change!(
     unknown_package_field,
     WATCHED,
     "path = \".\"",
@@ -152,6 +159,20 @@ change!(
     PAGE,
     "caption =",
     "extra = true\ncaption =",
+    "unknown field"
+);
+change!(
+    unknown_fit_container_field,
+    FIT,
+    "[[release]]",
+    "extra = true\n[[release]]",
+    "unknown field"
+);
+change!(
+    unknown_revocations_container_field,
+    REVOKED,
+    "[[revoked]]",
+    "extra = true\n[[revoked]]",
     "unknown field"
 );
 change!(
@@ -303,6 +324,126 @@ change!(
     "tag = \"v2.0.0-beta.1\"",
     "tag must be wayfinder/v2.0.0-beta.1"
 );
+#[test]
+fn release_requires_its_exact_versioned_signer_workflow() {
+    const SIGNER: &str =
+        "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1";
+    for (signer, expected) in [
+        (None, "missing field `workflow`"),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/heads/release-v1"),
+            "expected a signer workflow path",
+        ),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/release.yml@release-v1"),
+            "expected a signer workflow path",
+        ),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/other.yml@refs/tags/release-v1"),
+            "signer workflow path must match",
+        ),
+        (
+            Some("sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v"),
+            "expected a signer workflow path",
+        ),
+    ] {
+        let temp = checkout();
+        replace(
+            temp.path(),
+            RELEASE,
+            &format!("workflow = \"{SIGNER}\"\n"),
+            &signer.map_or_else(String::new, |s| format!("workflow = \"{s}\"\n")),
+        );
+        rejected(temp.path(), RELEASE, expected);
+    }
+    let temp = checkout();
+    replace(temp.path(), WORKFLOW, "release-v1", "release-v2");
+    assert_eq!(
+        index(temp.path())["projects"][0]["releases"][0]["workflow"],
+        SIGNER
+    );
+}
+
+#[test]
+fn release_assets_match_github_tag_and_asset_names_even_after_rename() {
+    for (old, new, field) in [
+        (
+            "https://github.com/example",
+            "https://github.com.example.org/example",
+            "file.url",
+        ),
+        ("/download/v1.2.0/", "/download/v1.2.1/", "file.url"),
+        (
+            "wayfinder-1.2.0.smod.sigstore.json",
+            "wayfinder-1.2.0.sigstore.json",
+            "file.attestation",
+        ),
+        (
+            "wayfinder-1.2.0.page.tar\"",
+            "other-1.2.0.page.tar\"",
+            "page.url",
+        ),
+        (
+            "wayfinder-1.2.0.page.tar.sigstore.json\"",
+            "wayfinder-1.2.0.page.tar.sigstore.json?q=x\"",
+            "page.attestation",
+        ),
+    ] {
+        let temp = checkout();
+        replace(temp.path(), RELEASE, old, new);
+        rejected(
+            temp.path(),
+            RELEASE,
+            &format!("{field} must be a GitHub release download HTTPS URL"),
+        );
+    }
+    let temp = checkout();
+    replace(temp.path(), WATCHED, "example/wayfinder", "example/renamed");
+    assert_eq!(
+        index(temp.path())["projects"][0]["repository"]["name"],
+        "example/renamed"
+    );
+}
+
+#[test]
+fn release_and_fit_require_exact_sunrise_build_names() {
+    for (file, from, to) in [
+        (RELEASE, "26.3-0.1.0", "latest"),
+        (RELEASE, "26.3-0.1.0", "26.3-0.1.0-beta.1"),
+        (RELEASE_2, "nightly-2026-11-23-abcdef0", "nightly"),
+        (FIT, "26.3-0.1.1", "not-a-build"),
+        (FIT, "26.3-0.1.1", "dev-2026-11-23-notasha"),
+    ] {
+        let temp = checkout();
+        replace(temp.path(), file, from, to);
+        rejected(
+            temp.path(),
+            file,
+            "expected a stable Sunrise tag or an exact Nightly/Dev build ID",
+        );
+    }
+    let temp = checkout();
+    replace(temp.path(), FIT, "26.3-0.1.1", "dev-2026-11-23-abcdef0");
+    assert!(run(&["check", "."], temp.path()).status.success());
+}
+
+#[test]
+fn mod_ids_use_the_manifest_predicate() {
+    for (file, from, id) in [
+        (PROJECT, "wayfinder", "a".repeat(65)),
+        (RELEASE, "map_markers", "con".into()),
+    ] {
+        let temp = checkout();
+        replace(
+            temp.path(),
+            file,
+            &format!("mod = \"{from}\""),
+            &format!("mod = \"{id}\""),
+        );
+        rejected(temp.path(), file, "expected an in-game ID");
+    }
+}
+
 change!(bad_asset_hash, RELEASE, &"a".repeat(64), "f", "SHA-256");
 change!(
     missing_asset_attestation,
@@ -599,7 +740,7 @@ fn category_must_apply_to_kind() {
 }
 
 #[test]
-fn two_packages_in_one_repo_cannot_share_an_in_game_id() {
+fn only_subfolder_packages_in_one_repo_collide_on_the_same_in_game_id() {
     let temp = checkout();
     replace(
         temp.path(),
@@ -608,6 +749,25 @@ fn two_packages_in_one_repo_cannot_share_an_in_game_id() {
         "",
     );
     replace(temp.path(), PROJECT_2, "987654321", "123456789");
+    let count = index(temp.path())["projects"].as_array().unwrap().len();
+    assert_eq!(count, 2);
+
+    for file in [WATCHED, PROJECT] {
+        replace(
+            temp.path(),
+            file,
+            "path = \".\"",
+            "path = \"mods/root-wayfinder\"",
+        );
+    }
+    let file = temp.path().join(RELEASE);
+    let text = fs::read_to_string(&file).unwrap();
+    fs::write(
+        file,
+        text.replace("tag = \"v1.2.0\"", "tag = \"wayfinder/v1.2.0\"")
+            .replace("/download/v1.2.0/", "/download/wayfinder%2Fv1.2.0/"),
+    )
+    .unwrap();
     rejected(temp.path(), PROJECT_2, "same in-game ID");
 }
 
@@ -671,23 +831,60 @@ fn release_filename_must_be_a_version() {
 }
 
 #[test]
-fn image_signature_matters_not_its_extension() {
+fn screenshot_requires_a_png_or_jpeg_signature() {
     let temp = checkout();
     fs::write(temp.path().join(SCREENSHOT), b"not an image").unwrap();
     rejected(temp.path(), SCREENSHOT, "PNG or JPEG file signature");
 }
 
 #[test]
-fn image_max_bytes() {
+fn referenced_image_extension_must_match_its_format() {
+    for (image, from, to) in [
+        (SCREENSHOT, "map.png", "map.jpg"),
+        (SCREENSHOT, "map.png", "map.html"),
+        (ICON, "icon.png", "icon.jpg"),
+    ] {
+        let temp = checkout();
+        let renamed = image.replace(from, to);
+        fs::rename(temp.path().join(image), temp.path().join(&renamed)).unwrap();
+        replace(temp.path(), PAGE, from, to);
+        rejected(temp.path(), &renamed, "extension must match");
+    }
+}
+
+#[test]
+fn nested_unreferenced_page_files_are_rejected() {
+    let temp = checkout();
+    let file = "registry/projects/Ab3dE9xQ/page/gallery/extra.png";
+    fs::create_dir_all(temp.path().join(file).parent().unwrap()).unwrap();
+    fs::copy(temp.path().join(SCREENSHOT), temp.path().join(file)).unwrap();
+    rejected(
+        temp.path(),
+        file,
+        "page file is not referenced by page.toml",
+    );
+}
+
+#[test]
+fn screenshot_gallery_size_does_not_replace_the_package_icon_limit() {
     let temp = checkout();
     let f = fs::OpenOptions::new()
         .write(true)
-        .open(temp.path().join(ICON))
+        .open(temp.path().join(SCREENSHOT))
         .unwrap();
     f.set_len(5 * 1024 * 1024).unwrap();
     assert!(run(&["check", "."], temp.path()).status.success());
     f.set_len(5 * 1024 * 1024 + 1).unwrap();
-    rejected(temp.path(), ICON, "image exceeds 5 MiB");
+    rejected(temp.path(), SCREENSHOT, "screenshot exceeds 5 MiB");
+    f.set_len(5 * 1024 * 1024).unwrap();
+
+    fs::OpenOptions::new()
+        .write(true)
+        .open(temp.path().join(ICON))
+        .unwrap()
+        .set_len(256 * 1024 + 1)
+        .unwrap();
+    rejected(temp.path(), ICON, "icon.png exceeds 256 KiB");
 }
 
 #[cfg(unix)]
@@ -750,6 +947,29 @@ fn multiple_problems_are_each_reported_on_one_line() {
         stderr
             .lines()
             .all(|line| line.starts_with("registry/") && line.contains("unknown field"))
+    );
+}
+
+#[test]
+fn diagnostics_escape_both_workflow_command_markers() {
+    let temp = checkout();
+    replace(
+        temp.path(),
+        PAGE,
+        "name =",
+        "\"##[warning]::warning:::\" = true\nname =",
+    );
+    let output = run(&["check", "."], temp.path());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert!(
+        stderr.contains("%23%23%5Bwarning]%3A%3Awarning%3A%3A:"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("##[") && !stderr.contains("::"),
+        "{stderr}"
     );
 }
 

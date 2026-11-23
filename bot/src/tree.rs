@@ -1,12 +1,16 @@
 use std::{
     collections::BTreeMap,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
     io::Read,
     path::{Path, PathBuf},
 };
 
 use serde::de::DeserializeOwned;
+use sunrise_mod_package::{
+    icon::{Icon, MAX_ICON},
+    page::MAX_SCREENSHOT_BYTES,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Entry {
@@ -38,7 +42,7 @@ impl<'a> Tree<'a> {
         self.problems
             .into_iter()
             .map(|(path, reason)| {
-                // Paths and serde diagnostics may contain line breaks or terminal controls.
+                // Keep each diagnostic on one line and escape both GitHub Actions command markers.
                 format!(
                     "{}: {}",
                     path.to_string_lossy().escape_debug(),
@@ -48,6 +52,8 @@ impl<'a> Tree<'a> {
                         .join(" ")
                         .escape_debug()
                 )
+                .replace("::", "%3A%3A")
+                .replace("##[", "%23%23%5B")
             })
             .collect()
     }
@@ -109,19 +115,56 @@ impl<'a> Tree<'a> {
         }
     }
 
-    pub fn image(&mut self, path: &Path) {
-        // Modrinth: apps/labrinth/src/routes/internal/globals.rs:57 (max_gallery_image_size).
-        const MAX_IMAGE_SIZE: u64 = 5 * 1024 * 1024;
+    pub fn icon(&mut self, path: &Path) {
+        if !path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+        {
+            self.problem(path, "icon extension must match PNG format (.png)");
+            return;
+        }
+        let mut bytes = Vec::new();
+        match fs::File::open(self.checkout.join(path))
+            .and_then(|file| file.take(MAX_ICON as u64 + 1).read_to_end(&mut bytes))
+        {
+            Ok(_) => {
+                if let Err(err) = Icon::parse(bytes) {
+                    self.problem(path, err);
+                }
+            }
+            Err(err) => self.problem(path, err),
+        }
+    }
+
+    pub fn screenshot(&mut self, path: &Path) {
         let result = (|| {
             let file = fs::File::open(self.checkout.join(path))?;
-            if file.metadata()?.len() > MAX_IMAGE_SIZE {
-                self.problem(path, "image exceeds 5 MiB");
+            if file.metadata()?.len() > MAX_SCREENSHOT_BYTES {
+                self.problem(path, "screenshot exceeds 5 MiB");
                 return Ok(());
             }
+            // Match the author-side page reader's signature check. Pages also needs a
+            // matching extension to serve the validated file as an image.
             let mut header = Vec::new();
             file.take(8).read_to_end(&mut header)?;
-            if !header.starts_with(b"\x89PNG\r\n\x1a\n") && !header.starts_with(b"\xff\xd8\xff") {
+            let extensions: &[_] = if header.starts_with(b"\x89PNG\r\n\x1a\n") {
+                &["png"]
+            } else if header.starts_with(b"\xff\xd8\xff") {
+                &["jpg", "jpeg"]
+            } else {
                 self.problem(path, "expected a PNG or JPEG file signature");
+                return Ok(());
+            };
+            if !path.extension().and_then(OsStr::to_str).is_some_and(|ext| {
+                extensions
+                    .iter()
+                    .any(|expected| ext.eq_ignore_ascii_case(expected))
+            }) {
+                self.problem(
+                    path,
+                    "screenshot extension must match PNG or JPEG format (.png, .jpg, .jpeg)",
+                );
             }
             Ok::<_, std::io::Error>(())
         })();

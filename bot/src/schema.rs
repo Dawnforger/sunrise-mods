@@ -1,5 +1,7 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sunrise_mod_package::{Manifest, index::stable_tag};
+use sunrise_release_sign::{Channel, is_build};
 use time::{Date, macros::format_description};
 use url::Url;
 
@@ -51,11 +53,16 @@ text_type!(
 );
 text_type!(
     ModId,
-    "expected an in-game ID using a-z, 0-9 or '_'",
+    "expected an in-game ID valid in sunrise-mod.toml",
     |s: &str| {
-        !s.is_empty()
-            && s.bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        // `load_before` uses exactly `valid_mod_id`; call it directly when the pin exports it.
+        let manifest = toml::Table::from_iter([
+            ("id".into(), "registry_id_check".into()),
+            ("name".into(), "Registry ID check".into()),
+            ("version".into(), "0.0.0".into()),
+            ("load_before".into(), toml::Value::Array(vec![s.into()])),
+        ]);
+        toml::to_string(&manifest).is_ok_and(|text| Manifest::parse(&text).is_ok())
     }
 );
 text_type!(
@@ -94,18 +101,20 @@ text_type!(
 text_type!(
     RepositoryName,
     "expected a GitHub owner/repository name",
-    |s: &str| {
-        s.split_once('/').is_some_and(|(owner, repo)| {
-            github_login(owner)
-                && !repo.is_empty()
-                && repo != "."
-                && repo != ".."
-                && repo
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
-        })
-    }
+    github_repository
 );
+
+pub fn github_repository(s: &str) -> bool {
+    s.split_once('/').is_some_and(|(owner, repo)| {
+        github_login(owner)
+            && !repo.is_empty()
+            && repo != "."
+            && repo != ".."
+            && repo
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    })
+}
 
 fn github_login(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -118,13 +127,29 @@ text_type!(
     WorkflowUse,
     "expected the registry release workflow at a release-v<number> tag",
     |s: &str| {
-        s.split_once('@').is_some_and(|(path, tag)| {
-            path == RELEASE_WORKFLOW
-                && tag
-                    .strip_prefix("release-v")
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        s.split_once('@')
+            .is_some_and(|(path, tag)| path == RELEASE_WORKFLOW && workflow_tag(tag))
+    }
+);
+text_type!(
+    SignerWorkflowRef,
+    "expected a signer workflow path at refs/tags/release-v<number>",
+    |s: &str| {
+        s.split_once('@').is_some_and(|(path, r)| {
+            !path.is_empty() && r.strip_prefix("refs/tags/").is_some_and(workflow_tag)
         })
     }
+);
+
+fn workflow_tag(tag: &str) -> bool {
+    tag.strip_prefix("release-v")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+text_type!(
+    BuildName,
+    "expected a stable Sunrise tag or an exact Nightly/Dev build ID",
+    |s: &str| { stable_tag(s).is_some() || Channel::of(s).is_some_and(|ch| is_build(ch, s)) }
 );
 
 #[derive(Deserialize)]
@@ -243,10 +268,10 @@ pub struct Release {
     pub version: Version,
     pub tag: Text,
     pub published: CalendarDate,
-    pub sunrise: Text,
+    pub sunrise: BuildName,
+    pub workflow: SignerWorkflowRef,
     pub file: Asset,
-    #[serde(rename = "page")]
-    pub _page: Asset,
+    pub page: Asset,
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
 }
@@ -304,7 +329,7 @@ pub struct Fit {
 #[serde(deny_unknown_fields)]
 pub struct FitRelease {
     pub version: Version,
-    pub fits: Vec<Text>,
+    pub fits: Vec<BuildName>,
 }
 
 #[derive(Deserialize)]

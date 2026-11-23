@@ -90,8 +90,9 @@ struct IndexRepository<'a> {
 struct IndexRelease<'a> {
     version: &'a Version,
     published: &'a CalendarDate,
-    sunrise: &'a Text,
-    fits: &'a [Text],
+    sunrise: &'a BuildName,
+    workflow: &'a SignerWorkflowRef,
+    fits: &'a [BuildName],
     file: &'a Asset,
     dependencies: &'a [Dependency],
 }
@@ -151,6 +152,7 @@ pub fn write(registry: &Registry, serial: u64, generated: &str, dest: &Path) -> 
                         version: &release.version,
                         published: &release.published,
                         sunrise: &release.sunrise,
+                        workflow: &release.workflow,
                         fits: fit
                             .and_then(|rows| rows.get(&release.version))
                             .map_or(&[], Vec::as_slice),

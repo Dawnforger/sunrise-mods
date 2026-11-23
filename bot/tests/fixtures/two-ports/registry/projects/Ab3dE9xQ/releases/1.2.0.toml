@@ -2,6 +2,7 @@ version = "1.2.0"
 tag = "v1.2.0"
 published = "2026-11-23"
 sunrise = "26.3-0.1.0"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
 
 [file]
 url = "https://github.com/example/wayfinder/releases/download/v1.2.0/wayfinder-1.2.0.smod"
