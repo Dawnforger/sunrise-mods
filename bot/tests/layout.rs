@@ -555,6 +555,13 @@ change!(
     "duplicate registered project ID"
 );
 change!(
+    reserved_slug,
+    PROJECT,
+    "slug = \"wayfinder\"",
+    "slug = \"registry-page\"",
+    "reserved slug registry-page"
+);
+change!(
     duplicate_slug,
     PROJECT_2,
     "wayfinder-alternate",

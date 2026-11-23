@@ -55,7 +55,7 @@ The registration service writes this file when the project is registered.
 | Field | Meaning |
 | --- | --- |
 | `id` | Permanent project ID. It matches the directory name. |
-| `slug` | Unique site page address. It uses `a–z`, `0–9`, `-`, and `_` and may change in a reviewed PR. |
+| `slug` | Unique site page address, `/mods/<slug>`. It uses `a–z`, `0–9`, `-`, and `_` and may change in a reviewed PR. It is never one of the site's own pages under `/mods/`: `mine`, `policy`, `registry-page` or `submit`. |
 | `mod` | In-game ID. Only two subfolder packages in the same repository cannot share it, because both use it in release tags and caller workflow names. A root package has its own tag and caller names. |
 | `kind` | `mod`, `native-mod`, `modpack`, `resourcepack`, `shader`, `shaderpack` or `datapack`. Pack-specific fields are not defined here. |
 | `owners` | GitHub logins allowed to release. This is not the list of page credits. |

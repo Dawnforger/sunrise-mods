@@ -13,6 +13,10 @@ use crate::{
     tree::{Entry, Tree},
 };
 
+/// The site's own pages under `/mods/` (sunny `frontend/site/src/pages/mods/`: `mine.astro`, `policy.astro`,
+/// `registry-page.astro`, `submit.astro`). A project's page is `/mods/<slug>`, so no project takes one of these.
+const SITE_PAGES: [&str; 4] = ["mine", "policy", "registry-page", "submit"];
+
 pub struct Registry {
     pub repositories: BTreeMap<RepositoryId, Repository>,
     pub release_workflow: WorkflowUse,
@@ -213,6 +217,16 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
         if let Some(project) = project {
             if project.id != id {
                 tree.problem(&project_path, "project ID must match the directory name");
+            }
+            if SITE_PAGES.contains(&project.slug.as_str()) {
+                tree.problem(
+                    &project_path,
+                    format!(
+                        "reserved slug {}: the site has its own page at /mods/{}",
+                        project.slug.as_str(),
+                        project.slug.as_str()
+                    ),
+                );
             }
             if !slugs.insert(project.slug.clone()) {
                 tree.problem(
