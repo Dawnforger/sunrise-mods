@@ -44,6 +44,7 @@ class Publish(unittest.TestCase):
         root.mkdir(exist_ok=True)
         (root / "index.json").write_bytes(BODIES[variant])
         shutil.copyfile(FIXTURES / f"{variant}.minisig", root / "index.json.minisig")
+        (root / live.BUNDLE).write_bytes(live.bundle(root))
         for project in json.loads(OLDER)["projects"]:
             source = PORTS / "registry/projects" / project["id"] / "page/icon.png"
             # The golden fixture's screenshots are byte-identical to each project's icon.
@@ -72,6 +73,34 @@ class Publish(unittest.TestCase):
             index = live.verify(published, KEY, self.verifier)
             live.check_images(published, index)
             self.assertEqual(index.body, BODIES[variant])
+            signature = (published / "index.json.minisig").read_bytes()
+            self.assertEqual((published / live.BUNDLE).read_bytes(), signature + BODIES[variant])
+
+    def test_deploy_is_confirmed_only_once_the_site_serves_its_one_signed_file(self):
+        deployed = self.snapshot(self.root / "deployed", "newer")
+        stale = self.snapshot(self.root / "stale", "older")
+        # The mix a reader of two files could get: the new index beside the old signature.
+        mixed = self.root / "mixed"
+        mixed.mkdir()
+        (mixed / live.BUNDLE).write_bytes((stale / "index.json.minisig").read_bytes() + BODIES["newer"])
+        served = iter([stale, mixed, deployed])
+        current = [next(served)]
+        waits = []
+
+        def pause(seconds):
+            waits.append(seconds)
+            current[0] = next(served, current[0])
+
+        def download(name, file, _limit):
+            shutil.copyfile(current[0] / name, file)
+            return True
+
+        with patch.object(live, "download", side_effect=download):
+            live.confirm_live(deployed, KEY, self.verifier, pause)
+            self.assertEqual(len(waits), 2)
+            current[0] = mixed
+            with self.assertRaisesRegex(ValueError, "LIVE_V2_NOT_DEPLOYED"):
+                live.confirm_live(deployed, KEY, self.verifier, lambda _seconds: None)
 
     def test_old_main_commit_cannot_sign_or_deploy(self):
         workflow = (REPO / ".github/workflows/publish.yml").read_text()

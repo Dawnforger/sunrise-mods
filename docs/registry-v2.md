@@ -2,8 +2,8 @@
 
 **V2 is built and checked before it goes live. Publishing starts when the registry signing key is configured. The current registry and its published files are unchanged.**
 
-V2 uses `registry/` for its source files. The launcher and site will read `v2/index.json` and
-`v2/index.json.minisig` on the existing registry site, not the TOML files. The author tool reads
+V2 uses `registry/` for its source files. The launcher and site read the single file
+`v2/index.signed` on the existing registry site, not the TOML files. The author tool reads
 its repository's file under `repositories/`, `categories.toml`, and `release-workflow.toml` from raw `main`.
 
 ## Repository layout
@@ -182,7 +182,12 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
 
 ### Reader rules
 
-1. Verify `index.json.minisig` with the registry public key over the **exact bytes** of `index.json`.
+1. Fetch `v2/index.signed` and nothing else for the catalogue. Its first four lines, each ending in
+   a line feed, are the minisign signature file; every byte after the fourth line feed is
+   `index.json`. Verify the signature with the registry public key over those **exact bytes**.
+   The site also carries `index.json` and `index.json.minisig` as the publisher's own record. Do not
+   read that pair: the site replaces files one at a time behind a cache, so the two can briefly come
+   from different publishes and fail to verify.
    Do not parse and reserialize those bytes for verification.
 2. Accept only schema 2 at this address. Ignore unknown fields under schema 2. A breaking change
    raises `schema` and uses a new address.
