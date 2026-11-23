@@ -1,0 +1,33 @@
+id = "ae2"
+kind = "native-mod"
+name = "Applied Energistics 2 (Early Access)"
+summary = "Early Access: Applied Energistics 2 for Sunrise. ME networks and storage, terminals, autocrafting, P2P tunnels, spatial storage and meteorites."
+description = """
+**Early Access.** An unofficial port of **Applied Energistics 2** (TeamAppliedEnergistics; code LGPL-3.0, textures, models, sounds and guide CC BY-NC-SA 3.0) to Sunrise's mod API. The Rust code is a rewrite; no Java code runs. Everything below works and is tested in game, but it is a large mod on a young modding API: expect rough edges, and report what you find in the repository's issues.
+
+## What is in it
+
+- **ME network:** controllers, cables of every kind and colour, channels, energy acceptors and cells, the network tool's status screen and its upgrade toolbox.
+- **Storage:** ME drives and chests, item and fluid cells of every size, portable cells, partitioning and fuzzy cards, the IO port, storage, import and export buses, level emitters.
+- **Terminals:** ME, crafting (with JEI's "+" transfer), pattern encoding and pattern access terminals, wireless terminals and access points.
+- **Autocrafting:** crafting CPUs, crafting, processing and smithing patterns, pattern providers, molecular assemblers, and the crafting status screen with a time-left estimate.
+- **The cable bus:** parts and facades sharing one cable block.
+- **P2P tunnels**, **spatial storage** and the **quantum network bridge**.
+- **World:** meteorites with their mysterious cubes and presses, certus quartz growth, in-world crafting, the charger, inscriber, entropy manipulator and matter cannon, and the Fluix Researcher villager.
+
+## Optional
+
+JEI (AE2's recipe categories and transfer), Jade (network and part details) and GuideME (the W guide). AE2 works without them.
+
+## Known
+
+Built for Sunrise Dev 2026-11-22 (Nightly and Dev players build it from source). Native code is not sandboxed: the launcher asks you to trust it first.
+"""
+authors = ["Joeypc6", "TeamAppliedEnergistics"]
+owners = ["Joeypc6"]
+license = "LGPL-3.0-only AND CC-BY-NC-SA-3.0"
+source = "https://github.com/Joeypc6/AE2-Sunrise"
+icon = "icons/ae2.png"
+screenshots = ["screenshots/ae2/1-network.jpg", "screenshots/ae2/2-terminal.jpg", "screenshots/ae2/3-plan.jpg", "screenshots/ae2/4-meteorite.jpg"]
+categories = ["technology", "storage"]
+tags = ["early-access", "ae2", "applied-energistics", "storage", "autocrafting", "me-network", "port"]
