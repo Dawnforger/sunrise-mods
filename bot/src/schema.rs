@@ -147,6 +147,12 @@ fn workflow_tag(tag: &str) -> bool {
 }
 
 text_type!(
+    Commit,
+    "expected a full lowercase game commit SHA",
+    sunrise_mod_package::manifest::revision
+);
+
+text_type!(
     BuildName,
     "expected a stable Sunrise tag or an exact Nightly/Dev build ID",
     |s: &str| { stable_tag(s).is_some() || Channel::of(s).is_some_and(|ch| is_build(ch, s)) }
@@ -318,18 +324,20 @@ pub struct Screenshot {
     pub caption: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fit {
     #[serde(default)]
     pub release: Vec<FitRelease>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FitRelease {
     pub version: Version,
     pub fits: Vec<BuildName>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub does_not_fit: Vec<BuildName>,
 }
 
 #[derive(Deserialize)]

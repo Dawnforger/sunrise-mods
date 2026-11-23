@@ -7,7 +7,7 @@ workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/rel
 [file]
 url = "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.smod"
 size = 123456
-sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+sha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 attestation = "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.smod.sigstore.json"
 
 [page]

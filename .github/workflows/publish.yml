@@ -24,7 +24,7 @@ jobs:
       RELEASE: https://github.com/${{ github.repository }}/releases/download/
       SITE: https://sunrise-org.github.io/sunrise-mods/
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - uses: ./.github/actions/tool
@@ -33,7 +33,7 @@ jobs:
       - run: cargo-sunrise-mod sunrise-mod registry list . > files.txt
       - run: cargo-sunrise-mod sunrise-mod registry list . --build-assets > descriptors.json
       # As in check: the cache keeps our own runs out of the download counts.
-      - uses: actions/cache@v4
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: files
           key: smod-files-${{ hashFiles('files.txt', 'descriptors.json') }}
@@ -70,14 +70,197 @@ jobs:
         run: python3 -I scripts/build_sources.py build . --out site/sources.json
       - name: Add the images
         run: for d in icons screenshots; do [ -d "$d" ] && cp -r "$d" site/; done; true
-      - uses: actions/upload-pages-artifact@v3
+      - name: Preserve the complete legacy site for Pages
+        run: tar -C site -cf "$RUNNER_TEMP/legacy-site.tar" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: legacy-site
+          path: ${{ runner.temp }}/legacy-site.tar
+          if-no-files-found: error
+
+  registry_v2:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      ready: ${{ steps.prepare.outputs.ready }}
+      sha256: ${{ steps.prepare.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build the v2 registry tool
+        run: cargo build --locked --manifest-path bot/Cargo.toml --target-dir target --release
+      - name: List offered Sunrise builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: target/release/registry-bot builds --out offered-builds.json
+      - name: Install the pinned Sunrise fit tool if there are releases to judge
+        run: |
+          if [[ -n $(git ls-files 'registry/projects/*/releases/*.toml') ]]; then
+            rev=$(python3 -c 'import tomllib; print(tomllib.load(open("bot/Cargo.toml", "rb"))["dependencies"]["sunrise-mod-package"]["rev"])')
+            [[ "$rev" =~ ^[0-9a-f]{40}$ ]]
+            cargo install --locked --git https://github.com/sunrise-org/sunrise.git \
+              --rev "$rev" --root "$RUNNER_TEMP/registry-tool" cargo-sunrise-mod
+            echo "$RUNNER_TEMP/registry-tool/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Generate and validate the v2 catalogue
+        id: prepare
+        run: |
+          set -euo pipefail
+          cache=() after=()
+          if [[ -f registry/index-key.pub ]]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends minisign
+            python3 -I .github/registry-v2/live.py --out v2-previous
+            if [[ -f v2-previous/index.json ]]; then
+              cache=(--cache v2-previous/index.json)
+              after=(--after v2-previous/index.json)
+            fi
+          fi
+          target/release/registry-bot fit . --builds offered-builds.json "${cache[@]}" --out registry/fit
+          target/release/registry-bot index . --serial "$(date -u +%s)" --out v2-stage --generated-fit "${after[@]}"
+          if [[ ! -f registry/index-key.pub ]]; then
+            echo 'Registry v2 was built and checked, but is not published until its public key is configured.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo 'Registry v2 was built and checked. Only main can publish it.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tar -C v2-stage -cf "$RUNNER_TEMP/v2-pages.tar" pages
+          echo "sha256=$(sha256sum < v2-stage/index.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.prepare.outputs.ready == 'true'
+        with:
+          name: unsigned-v2-index
+          path: v2-stage/index.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.prepare.outputs.ready == 'true'
+        with:
+          name: v2-pages
+          path: ${{ runner.temp }}/v2-pages.tar
+          if-no-files-found: error
+
+  sign:
+    needs: registry_v2
+    if: github.ref == 'refs/heads/main' && needs.registry_v2.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    environment: registry-signing
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout: registry/index-key.pub
+          sparse-checkout-cone-mode: false
+      - name: Install minisign
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: unsigned-v2-index
+          path: payload
+      - name: Check the artifact hash, sign the index, and verify the signature
+        env:
+          EXPECTED_SHA256: ${{ needs.registry_v2.outputs.sha256 }}
+          REGISTRY_SIGNING_KEY: ${{ secrets.REGISTRY_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  payload/index.json\n' "$EXPECTED_SHA256" | sha256sum --check --status
+          umask 077
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "${REGISTRY_SIGNING_KEY:?missing registry signing key}" > "$key"
+          unset REGISTRY_SIGNING_KEY
+          minisign -S -s "$key" -m payload/index.json -t 'Sunrise mod registry v2'
+          minisign -Vm payload/index.json -p registry/index-key.pub
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed-v2-index
+          path: |
+            payload/index.json
+            payload/index.json.minisig
+          if-no-files-found: error
+
+  assemble:
+    needs: [publish, registry_v2, sign]
+    if: always() && !cancelled() && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      v2_failed: ${{ steps.overlay.outputs.v2_failed }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: legacy-site
+      - name: Record the exact legacy files before adding v2
+        run: |
+          mkdir site
+          tar -C site -xf legacy-site.tar
+          (cd site && find . -type f -print0 | sort -z | xargs -0r sha256sum) > legacy-before.sha256
+      - name: Install minisign if the registry has a public key
+        run: |
+          if [[ -f registry/index-key.pub ]]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends minisign
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        id: signed
+        if: needs.sign.result == 'success'
+        continue-on-error: true
+        with:
+          name: signed-v2-index
+          path: candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        id: images
+        if: needs.sign.result == 'success'
+        continue-on-error: true
+        with:
+          name: v2-pages
+      - name: Verify the candidate or restore the currently published v2 files
+        id: overlay
+        env:
+          PREPARE: ${{ needs.registry_v2.result }}
+          READY: ${{ needs.registry_v2.outputs.ready }}
+          SIGNED: ${{ steps.signed.outcome }}
+          IMAGES: ${{ steps.images.outcome }}
+        run: |
+          set -euo pipefail
+          v2_failed=false
+          if [[ "$SIGNED" == success && "$IMAGES" == success ]] \
+            && tar -C candidate -xf v2-pages.tar \
+            && python3 -I .github/registry-v2/live.py --check candidate; then
+            mv candidate site/v2
+          else
+            python3 -I .github/registry-v2/live.py --out site/v2 --with-images
+            if [[ "$PREPARE" != success || "$READY" == true ]]; then
+              v2_failed=true
+              echo 'Registry v2 could not be prepared or signed. The legacy site will deploy with the previous signed v2 files, if any.' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "v2_failed=$v2_failed" >> "$GITHUB_OUTPUT"
+      - name: Prove the legacy site files are byte-identical
+        run: |
+          (cd site && find . -path ./v2 -prune -o -type f -print0 | sort -z | xargs -0r sha256sum) > legacy-after.sha256
+          diff -u legacy-before.sha256 legacy-after.sha256
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: site
 
-  # Its own job, as GitHub documents it: it finds the site by listing the run's artifacts, and a listing made
-  # right after the upload, in the job that made it, came back empty.
+  # GitHub Pages finds the single site artifact in the completed assembly job.
   deploy:
-    needs: publish
+    needs: assemble
+    if: always() && !cancelled() && needs.assemble.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -87,4 +270,14 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}index.json
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+
+  report-v2-failure:
+    needs: [assemble, deploy]
+    if: always() && !cancelled() && needs.deploy.result == 'success' && needs.assemble.outputs.v2_failed == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: |
+          echo 'The legacy site deployed, but the new v2 index did not publish.'
+          exit 1

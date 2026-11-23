@@ -2,6 +2,26 @@
   "schema": 2,
   "serial": 41,
   "generated": "2026-11-23T00:00:00Z",
+  "builds": [
+    {
+      "id": "26.3-0.1.0",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "26.3-0.1.1",
+      "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "id": "dev-2026-11-23-abcdef0",
+      "commit": "abcdef0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "image_sha256": {
+    "pages/Ab3dE9xQ/icon.png": "b8aada138ace0aa9fa50eb75bfca71c8902fd11d174b49b238dc77724bedabf9",
+    "pages/Ab3dE9xQ/map.png": "b8aada138ace0aa9fa50eb75bfca71c8902fd11d174b49b238dc77724bedabf9",
+    "pages/Zz91kLmN/gallery/map%20%231%20%25.png": "7168024acd40dc1ac94b39151094bb3a2500725cb4c30e840e21c3e05475994b",
+    "pages/Zz91kLmN/icon.png": "7168024acd40dc1ac94b39151094bb3a2500725cb4c30e840e21c3e05475994b"
+  },
   "categories": [
     {
       "id": "adventure",
@@ -124,7 +144,7 @@
           "file": {
             "url": "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.smod",
             "size": 123456,
-            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "attestation": "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.smod.sigstore.json"
           },
           "dependencies": [

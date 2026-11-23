@@ -1,6 +1,6 @@
 # Sunrise mod registry v2
 
-**This registry is not live yet. The current registry and its published files are unchanged.**
+**V2 is built and checked before it goes live. Publishing starts when the registry signing key is configured. The current registry and its published files are unchanged.**
 
 V2 uses `registry/` for its source files. The launcher and site will read `v2/index.json` and
 `v2/index.json.minisig` on the existing registry site, not the TOML files. The author tool reads
@@ -104,10 +104,18 @@ validated images.
 
 ### `registry/fit/<project>.toml`
 
-CI writes `[[release]]` rows for the registered project in the filename. A row has an existing
-release `version` and `fits`, the list of exact Sunrise build IDs that release fits, using the
-same forms as `sunrise`. A release and its build IDs do not repeat within the corresponding
-lists. An absent row means no computed fits.
+CI generates `registry/fit/` at publish time; it is never committed. The checkout checker rejects
+it outside the test fixtures. The directory contains `builds.json` and one TOML file per project
+with releases. Each `[[release]]` row has the existing release `version`, `fits` (exact build IDs
+known to fit), and optionally `does_not_fit` (exact build IDs known not to fit). A missing verdict
+means the comparison could not be made and will not be reused on the next publish.
+
+Offered builds are every published `26.3-<semver>` stable release and up to the ten newest builds
+with a published SDK surface from each of Nightly and Dev. Releases identify Nightlies by their
+exact build IDs rather than by the rolling GitHub tag. The fit process verifies the package's size
+and SHA-256 and the SDK's signed metadata and surface. It uses Sunrise's fit tool for native
+cross-build compatibility and does not build or run packages. Known verdicts are reused by
+package SHA-256 and exact build ID and commit, only from the previously published signed index.
 
 ### `registry/revoked.toml`
 
@@ -134,8 +142,10 @@ The top-level object contains:
 | Field | Meaning |
 | --- | --- |
 | `schema` | Integer `2`. |
-| `serial` | Unsigned 64-bit sequence number. The publisher increases it by at least one on every publish. |
+| `serial` | Opaque unsigned 64-bit sequence number. The publisher refuses to publish it unless it is greater than the previous live serial. |
 | `generated` | UTC RFC 3339 timestamp. Informational only; it does not expire the index. |
+| `builds` | Array of offered `{ id, commit }` pairs. `commit` is the full SDK commit SHA. |
+| `image_sha256` | Map from each listed encoded image path to its lowercase SHA-256. It lets the publisher restore exactly the previously served images. |
 | `categories` | Array of `{ id, icon, kinds }` rows, as above. |
 | `projects` | Projects with at least one release. |
 | `revoked` | Takedown rows as above. A `null` `sha256` takes down the whole project. |
@@ -149,7 +159,10 @@ resolved page. Missing links are `null`; absent categories are `[]`. Each screen
 
 Each project's `releases` array contains rows with `version`, `published`, `sunrise`, `workflow`,
 `fits`, `file`, and `dependencies`. The release's `workflow` is an exact signer ref, not the project's
-bare workflow path. `fits` is an array of exact build IDs, empty until computed. `file` contains
+bare workflow path. `fits` is an array of exact build IDs; missing IDs do not fit for discovery.
+The optional `does_not_fit` array lets the publisher distinguish a known negative verdict from an
+unavailable comparison when reusing the index as its cache. Readers filter using `fits` only.
+`file` contains
 `url`, `size`, `sha256`, and `attestation`. Each dependency carries `mod`, `project` and `required`;
 a `null` `project` means the dependency does not pin a provider. The index omits the Git tag and
 page bundle. The launcher does not fetch the bundle to show the page or install the mod.
@@ -175,9 +188,24 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
 
 - `registry-bot check <checkout>` validates a local tree, reports file and reason on each diagnostic
   line, and exits nonzero for an invalid tree.
-- `registry-bot index <checkout> --serial <n> --out <dir>` validates the same tree and writes
-  `index.json` to the caller's output directory. It uses the current UTC time for `generated`. It
-  does not sign the index, copy images into a site, or publish anything.
+- `registry-bot builds --out <file>` lists the offered game builds from GitHub. For authenticated
+  API access, pass the usual GitHub CLI token in its environment.
+- `registry-bot fit <checkout> --builds <file> [--cache <previous index.json>] --out <dir>` writes
+  the generated fit directory. The optional cache must have its `.minisig` beside it, valid for
+  `registry/index-key.pub` in the checkout.
+- `registry-bot index <checkout> --serial <n> --out <dir>` validates the same tree and stages
+  `index.json` and the exact referenced images under `pages/`. Use `--generated-fit` to consume CI
+  fit output from `registry/fit/`; add `--after <previous index.json>` to verify the previous signed
+  index and require a greater serial. The command uses the current UTC time for `generated` and
+  does not sign or deploy anything.
+- `registry-bot verify-index <index> <sig> --key <pub>` checks the exact bytes and the index schema.
+
+The publish workflow uses the current UTC epoch second as the next serial. It signs only on
+`main`, then overlays the verified v2 index and images on the regular Pages artifact. If that
+fails, the workflow keeps the last signed v2 files, deploys the legacy site, and reports failure.
+If the live v2 files cannot be retrieved and verified, it refuses to replace the site rather than
+erasing the last catalogue. A separate scheduled workflow detects new offered builds and requests
+a publish on `main` without committing generated files.
 
 The [two-provider fixture](../bot/tests/fixtures/two-ports/registry/) and
 [its golden index](../bot/tests/fixtures/two-ports/index.json) show two projects for a single in-game ID.
