@@ -1,8 +1,7 @@
 name: Watch registered releases
 
+# Started every half hour by timer.yml.
 on:
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions: {}
