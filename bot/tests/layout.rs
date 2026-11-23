@@ -953,7 +953,7 @@ fn symlink_toml_is_not_followed() {
 #[test]
 fn image_directory_symlink_is_not_followed() {
     use std::os::unix::fs::symlink;
-    let dir = "registry/projects/Zz91kLmN/page/gallery";
+    let dir = "registry/projects/Zz91kLmN/page/.github";
     let temp = checkout();
     let other = checkout();
     fs::remove_dir_all(temp.path().join(dir)).unwrap();
