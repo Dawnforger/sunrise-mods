@@ -1,0 +1,37 @@
+name: Lint the mod release workflow
+
+on:
+  pull_request:
+    paths: ['.github/workflows/release*.yml']
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run actionlint 1.7.12
+        run: |
+          archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
+          curl --disable --proto '=https' --proto-redir '=https' -fsSL -o "$archive" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" .github/workflows/release*.yml
+      - name: Run zizmor 1.22.0
+        run: |
+          archive="$RUNNER_TEMP/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          curl --disable --proto '=https' --proto-redir '=https' -fsSL -o "$archive" \
+            https://github.com/zizmorcore/zizmor/releases/download/v1.22.0/zizmor-x86_64-unknown-linux-gnu.tar.gz
+          echo "f7633bbf155cddebd3fdfdcbfaa777a4e89e4da1bc719b08dfa9ae50e5daae46  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" ./zizmor
+          "$RUNNER_TEMP/zizmor" --offline .github/workflows/release*.yml
