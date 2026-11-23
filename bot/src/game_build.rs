@@ -6,7 +6,7 @@ use sunrise_mod_package::{index, manifest::Native};
 use sunrise_release_sign::{self as signing, Channel};
 
 use crate::{
-    github::{self, GitHub},
+    github::{self, GitHub, Repo},
     schema::{BuildName, RepositoryName},
 };
 
@@ -31,7 +31,7 @@ impl<'a> Builds<'a> {
         expected: Option<&BuildName>,
     ) -> Result<BuildName, String> {
         if self.releases.is_none() {
-            self.releases = Some(self.github.releases(&self.repository)?);
+            self.releases = Some(self.github.releases(Repo::Named(&self.repository))?);
         }
         let releases = self
             .releases
@@ -70,7 +70,7 @@ impl<'a> Builds<'a> {
                 .is_some_and(|(game, _)| pin.is_none_or(|n| n.game == game))
             {
                 if let Some(native) = pin
-                    && self.github.tag_commit(&self.repository, tag)? != native.sunrise
+                    && self.github.tag_commit(Repo::Named(&self.repository), tag)? != native.sunrise
                 {
                     continue;
                 }

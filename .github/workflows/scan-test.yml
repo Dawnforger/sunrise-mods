@@ -5,6 +5,12 @@ on:
     paths: ['scanner/**', '.github/workflows/scan.yml', '.github/workflows/scan-test.yml']
   push:
     paths: ['scanner/**', '.github/workflows/scan.yml', '.github/workflows/scan-test.yml']
+  workflow_dispatch:
+    inputs:
+      native-template-build:
+        type: string
+        description: Full commit of a published signed SDK (requires a mod tool with release_contract >= 1)
+        required: true
 
 permissions:
   contents: read
@@ -12,6 +18,10 @@ permissions:
 jobs:
   fixture-artifacts:
     runs-on: ubuntu-latest
+    outputs:
+      flags: ${{ steps.flags.outputs.artifact-id }}
+      prior: ${{ steps.prior.outputs.artifact-id }}
+      native: ${{ steps.native.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -19,24 +29,48 @@ jobs:
       - name: Test the job summary preview
         run: python3 -I -m unittest discover -s scanner -p test_workflow.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: flags
         with:
-          name: fixture-flags
+          name: fixture-flags-${{ github.run_attempt }}
           path: scanner/tests/flags/
           include-hidden-files: true
           if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: prior
         with:
-          name: fixture-prior
+          name: fixture-prior-${{ github.run_attempt }}
           path: scanner/tests/prior/
           include-hidden-files: true
           if-no-files-found: error
+
+      - name: Generate a locked native template without shipping its SDK
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SDK_COMMIT: ${{ inputs.native-template-build }}
+        run: python3 -I bot/ci/build_release.py "$RUNNER_TEMP/native_template" template-fixture "$SDK_COMMIT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: native
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: fixture-native-template-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native_template/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  native-template:
+    needs: fixture-artifacts
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/scan.yml
+    with:
+      source-artifact: ${{ needs.fixture-artifacts.outputs.native }}
+      fixture: native-template
 
   flags-and-diff:
     needs: fixture-artifacts
     uses: ./.github/workflows/scan.yml
     with:
-      source-artifact: fixture-flags
-      previous-artifact: fixture-prior
+      source-artifact: ${{ needs.fixture-artifacts.outputs.flags }}
+      previous-artifact: ${{ needs.fixture-artifacts.outputs.prior }}
       fixture: flags
 
   paths-and-failures:

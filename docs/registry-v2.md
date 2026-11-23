@@ -225,31 +225,41 @@ The [two-provider fixture](../bot/tests/fixtures/two-ports/registry/) and
 
 `watch.yml` polls every 30 minutes and can also be started manually on `main`. It looks up each
 repository by its numeric GitHub ID. A rename opens a separate maintenance PR for `watched.toml`;
-it does not change project IDs or rewrite old release URLs. At registration the watcher proposes
-at most the newest correctly signed release, by GitHub publication time. Once a release has been
-approved, older publications are not backfilled. Each project has at most one open release PR, so
-approving an older PR cannot replace a newer page. Eligible later releases are picked in publication
-order. Draft releases never count; signed prereleases can count. Failed candidates and their reasons
-appear in the watch run's summary rather than opening a PR.
+it does not change project IDs or rewrite old release URLs. At registration the watcher considers
+only the newest publication, by GitHub's timestamp. If its signature cannot be determined, the
+watcher reports that and does not fall back to an older release. After an approval, only releases
+published later than the latest approved release are eligible. The row still records just the date.
+The same publication order selects the previous approved package for the scanner. A project has
+at most one open release PR, and an existing bot PR (including a closed, unmerged PR) makes that
+version handled. The watcher does not recreate it. Drafts never count; signed prereleases can count.
+Observation and publication failures appear in the watch summary.
 
 The read-only job downloads the `.smod`, page tar and both bundles. It checks GitHub's sizes and
 available hashes, then uses `gh attestation verify` to check each artifact against the release
-workflow and the tagged source commit. It checks the **verified certificate** for the registered
-numeric repository ID and exact `release-v<number>` workflow ref, and requires both bundles to
-agree. Native packages must pin a commit that a signed Sunrise build names. When a content-only
-package has no SDK pin, the watcher records the current signed Nightly's exact build, not the
-moving alias. The checker resolves the same exact build when it checks the PR. The existing
+workflow and the same tagged source commit, resolved once. It checks the **verified certificate**
+for the registered numeric repository ID and exact `release-v<number>` workflow ref, and requires
+both bundles to agree. Native packages must pin a commit that a signed Sunrise build names. When a
+content-only package has no SDK pin, the watcher records the current signed Nightly's exact build,
+not the moving alias. The checker resolves the same exact build when it checks the PR. The existing
 registry package download cap is 64 MiB (`sunrise_mod_package::index::MAX_FILE`); page entries use
 Sunrise's manifest and screenshot limits. The write job gets only generated registry files. It
 opens `release/<project>/<version>` and dispatches `release-check.yml` on `main` with the PR number
 and exact head SHA. The registry's own GitHub Actions token does this; authors do not need one.
 
 The release check reads the PR's Git tree as data, without checking it out. Only a new release row
-and that project's page are allowed to change. It reverifies the package and page and requires the
-tracked files to match what it regenerated. The scanner receives the unpacked source and the last
-approved package when there is one. Separate hosted jobs use the signed `cargo-sunrise-mod` tool to
-build on Linux and compile-check on Apple-chip macOS and Windows x64. They run without write
-permissions, secrets or a persisted checkout token.
+and that project's page are allowed to change. It takes all four download URLs from the live release
+of the registered repository, verifies the downloaded hashes and attestations, and requires the
+row and page to match what it regenerated. GitHub API digests may be absent; the local SHA-256
+checks still apply. An old URL for a previously approved source is accepted after a rename only if
+it still reaches the same asset; the stored SHA-256 must still match.
+
+The scanner receives the unpacked source and the last approved package when there is one. For the
+native template's API path dependency, the scanner fetches the signed SDK pinned by the mod into a
+scratch copy before passing the lockfile to Cargo; it never builds the mod. Separate hosted jobs
+build on Linux and compile-check on Apple-chip macOS and Windows x64. These jobs use the signed
+`cargo-sunrise-mod` tool, and its signed `tool.json` must declare `release_contract >= 1`. Publish
+such a tool before enabling the watcher. Jobs that handle the package have no write permissions,
+secrets, persisted checkout token or Actions cache access.
 
 The Linux job does not start the game. The published native `cargo sunrise-mod run` needs prepared
 resources. `sunrise-prepare --server` can prepare the public dedicated-server resources, but a
@@ -258,10 +268,18 @@ client resources, which are not available to these hosted jobs. There is no cack
 mod tool generates its own Cargo work tree and installs its own rustc wrapper for the SDK-native
 build; it does not expose a cackle entry point into that build.
 
-A separate completion workflow puts the scanner summary and job outcomes in one PR comment and
-records `registry-v2/release-check` on the checked **PR head**, not on the workflow's `main` commit.
-It can record a failure even if the checked run was cancelled or timed out. A skipped or incomplete
-check is not green. The scanner's ordinary flags guide the review; they do not fail a release.
+The check sets `registry-v2/release-check` to pending on the checked **PR head**, not on the
+workflow's `main` commit. A final job in the same run posts the current scanner summary and job
+outcomes in one PR comment and updates that status. Checks for one PR are serialized, and only the
+newest dispatch and attempt for the head may post. It passes only when every required job succeeds
+and the trusted scanner's report verifies for that attempt. A skipped, cancelled, timed-out or
+incomplete check is not green; if cancellation prevents the final job from starting, the status
+stays pending. Use **Rerun all jobs**; do not rerun only failed jobs. Ordinary scanner flags guide
+review without failing the release.
+
 Enable **Allow GitHub Actions to create and approve pull requests** before turning on the watcher.
-Require `registry-v2/release-check` for release PR merges; maintenance and registration PRs do not
-receive that release status.
+Require `registry-v2/release-check` on `main` for every PR. A no-checkout workflow reports success
+with `not a release` for PRs that change no files under `registry/projects/*/releases/` or
+`registry/projects/*/page/`. Only the dispatched check can pass a PR that changes those paths.
+A maintainer must approve the ordinary `check` and `dco` workflow runs for PRs the bot opens with
+`GITHUB_TOKEN`.

@@ -2,7 +2,7 @@
 
 Never checks out a PR or runs code from one. PR inputs go to Git/GitHub as data.
 """
-import io
+import hashlib
 import json
 import os
 import re
@@ -12,7 +12,6 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from urllib.parse import quote
 
 PROJECT = r"[A-Za-z0-9]{8}"
 # Rust's semver parser owns the version; here constrain independent Git/path inputs.
@@ -21,7 +20,8 @@ RELEASE = re.compile(rf"release/(?P<project>{PROJECT})/(?P<version>{VERSION})", 
 ROW = re.compile(rf"registry/projects/(?P<project>{PROJECT})/releases/(?P<version>{VERSION})\.toml", re.ASCII)
 SHA = re.compile(r"[0-9a-f]{40}", re.ASCII)
 PR = re.compile(r"[1-9][0-9]*", re.ASCII)
-RUN = re.compile(rf"Registry release PR ({PR.pattern}) at ({SHA.pattern})", re.ASCII)
+DIGEST = re.compile(r"(?:sha256:)?([0-9a-f]{64})", re.ASCII)
+REQUIRED_JOBS = {"pending", "verify", "build", "scanner"}
 BOT = "github-actions[bot]"
 STATUS = "registry-v2/release-check"
 WORKFLOW = "release-check.yml"
@@ -67,21 +67,57 @@ def safe(text):
     return str(text).encode("unicode_escape").decode("ascii").replace("::", "%3A%3A").replace("##[", "%23%23%5B")
 
 
-def own_release(pr):
+def own_bot_pr(pr):
     repo = os.environ["GITHUB_REPOSITORY"].lower()
     head_repo = pr["head"]["repo"]
-    return (head_repo and head_repo["full_name"].lower() == repo and pr["base"]["ref"] == "main"
-            and pr["user"]["login"] == BOT and RELEASE.fullmatch(pr["head"]["ref"]))
+    return head_repo and head_repo["full_name"].lower() == repo and pr["user"]["login"] == BOT
 
 
-def verify(out):
+def own_release(pr):
+    return own_bot_pr(pr) and RELEASE.fullmatch(pr["head"]["ref"])
+
+
+def dispatch():
     number, sha = os.environ["PR_NUMBER"], os.environ["PR_HEAD"]
     require(PR.fullmatch(number) and SHA.fullmatch(sha), "dispatch requires a positive PR number and full lowercase head SHA")
     require(os.environ["GITHUB_REF"] == MAIN, "release checks run from main")
     pr = api(f"pulls/{number}")
     branch = own_release(pr)
-    require(branch and pr["state"] == "open" and pr["head"]["sha"] == sha,
+    require(branch and pr["base"]["ref"] == "main" and pr["state"] == "open" and pr["head"]["sha"] == sha,
             "dispatch does not name the current head of an open registry release bot PR")
+    return number, sha, branch
+
+
+def set_status(sha, state, description):
+    target = (f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}")
+    api(f"statuses/{sha}", "-X", "POST", data={"context": STATUS, "state": state,
+                                               "description": description, "target_url": target})
+    return target
+
+
+def dispatch_runs():
+    # This workflow is public; listing its runs does not require actions: read.
+    pages = api(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=100",
+                "--paginate", "--slurp")
+    return (run for page in pages for run in page["workflow_runs"])
+
+
+def current_run(number, sha):
+    title = f"Registry release PR {number} at {sha}"
+    latest = max(((run["id"], run["run_attempt"]) for run in dispatch_runs()
+                  if run["display_title"] == title), default=None)
+    return latest == (int(os.environ["GITHUB_RUN_ID"]), int(os.environ["GITHUB_RUN_ATTEMPT"]))
+
+
+def pending():
+    number, sha, _ = dispatch()
+    require(current_run(number, sha), "this dispatch is not the latest run and attempt for the PR head")
+    set_status(sha, "pending", "Checking release")
+
+
+def verify(out):
+    number, sha, branch = dispatch()
     git("fetch", "--no-tags", "origin", f"refs/pull/{number}/head")
     require(git("rev-parse", "FETCH_HEAD").decode().strip() == sha, "PR changed during fetch")
     base = git("merge-base", "HEAD", sha).decode().strip()
@@ -166,99 +202,107 @@ def open_pr(generated, branch, base, title, body):
 def publish(generated):
     base = git("rev-parse", "HEAD").decode().strip()
     live = api("git/ref/heads/main")["object"]["sha"]
-    if live != base:
-        # Do not commit stale generated pages or registry names. The next watch uses new main.
-        print("Main changed during observation; no generated files were published.")
-        return
     repo = os.environ["GITHUB_REPOSITORY"]
-    open_prs = rows("pulls?state=open&base=main&per_page=100")
-    open_branches = {pr["head"]["ref"] for pr in open_prs
-                     if pr["head"]["repo"] and pr["head"]["repo"]["full_name"].lower() == repo.lower()}
-    if (generated / "rename").exists() and "registry/refresh-repository-names" not in open_branches:
-        open_pr(generated / "rename", "registry/refresh-repository-names", base, "Refresh watched repository names",
-                "Updates the display names returned by GitHub for registered numeric repository IDs. No package or release identity changes.")
-    for path in sorted((generated / "releases").glob("*/*")):
-        branch = f"release/{path.parent.name}/{path.name}"
-        match = RELEASE.fullmatch(branch)
-        require(match, "watch artifact has an invalid release path")
-        prefix = f"release/{match['project']}/"
-        if any(other.startswith(prefix) for other in open_branches):
-            continue
-        open_pr(path, branch, base, f"Publish {match['project']} {match['version']}",
-                "## Verified release\n\nBoth GitHub attestations match the registered repository ID, tag and commit, and the shared signer workflow. "
-                "The asset sizes and SHA-256 hashes, package manifest, exact Sunrise build and resolved page were checked. "
-                "The release check will reverify those inputs, build the package and run the scanner before review.")
-    # A dispatch retry after a failed request, without redispatching runs already queued or completed.
-    for pr in rows("pulls?state=open&base=main&per_page=100"):
-        if not own_release(pr):
-            continue
-        number, sha = pr["number"], pr["head"]["sha"]
-        require(PR.fullmatch(str(number)) and SHA.fullmatch(sha), "invalid GitHub PR identity")
-        title = f"Registry release PR {number} at {sha}"
-        runs = api(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=100",
-                   "--paginate", "--slurp")
-        if not any(run["display_title"] == title for page in runs for run in page["workflow_runs"]):
-            gh("workflow", "run", WORKFLOW, "--repo", repo, "--ref", "main", "-f", f"pr={number}", "-f", f"head={sha}")
-
-
-def report():
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes())
-    run = event["workflow_run"]
-    repo = os.environ["GITHUB_REPOSITORY"]
-    if (run["event"] != "workflow_dispatch" or run["path"] != ".github/workflows/" + WORKFLOW
-            or run["head_branch"] != "main" or run["head_repository"]["id"] != event["repository"]["id"]):
-        return
-    match = RUN.fullmatch(run["display_title"])
-    if not match:
-        return  # Dispatch rejected before it could name a release PR.
-    number, sha = match.groups()
-    pr = api(f"pulls/{number}")
-    if not own_release(pr) or pr["head"]["sha"] != sha:
-        return  # A stale completion never writes to a replacement head.
-    latest = api(f"actions/runs/{run['id']}")
-    if latest["run_attempt"] != run["run_attempt"]:
-        return  # A newer rerun owns the result.
-    conclusion = run["conclusion"]
-    target = f"https://github.com/{repo}/actions/runs/{run['id']}/attempts/{run['run_attempt']}"
-    marker = "<!-- registry-v2-release-check -->"
-    body = f"{marker}\n## Registry release check\n\nResult: **{safe(conclusion)}**. [Check run]({target}).\n"
-    success = False
-    try:
-        jobs = api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", "--paginate", "--slurp")
-        jobs = [job for page in jobs for job in page["jobs"]]
-        names = {job["name"] for job in jobs}
-        expected = {"Verify release", "Build / Linux", "Build / macOS", "Build / Windows"}
-        complete = (expected <= names and any(name.endswith(" / scan") for name in names)
-                    and all(job["conclusion"] == "success" for job in jobs))
-        body += "\n" + "\n".join(f"- {safe(job['name'])}: {safe(job['conclusion'])}" for job in jobs) + "\n"
-        artifacts = api(f"actions/runs/{run['id']}/artifacts?name=scan-summary&per_page=100")["artifacts"]
-        reports = [a for a in artifacts if a["name"] == "scan-summary" and not a["expired"]]
-        if len(reports) == 1:
-            raw = gh("api", "--hostname", "github.com", f"repos/{repo}/actions/artifacts/{reports[0]['id']}/zip")
-            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                require(archive.namelist() == ["summary.md"], "unexpected scanner report artifact shape")
-                with archive.open("summary.md") as summary:
-                    # GitHub's issue/PR comment body is limited to 65,536 characters. Keep whole lines.
-                    text = summary.read(60_000)
-                    truncated = len(text) == 60_000
-                    if truncated:
-                        text = text.rsplit(b"\n", 1)[0]
-                    body += "\n" + text.decode("utf-8", errors="replace").replace("::", "%3A%3A").replace("##[", "%23%23%5B")
-                    if truncated:
-                        body += "\n\nReport excerpt; see the full `scan-summary` artifact linked above.\n"
+    pulls = "pulls?per_page=100&state="
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+        if live == base:
+            seen = [pr for pr in rows(pulls + "all") if own_bot_pr(pr)]
+            handled = {pr["head"]["ref"] for pr in seen if own_release(pr)}
+            open_branches = {pr["head"]["ref"] for pr in seen if pr["state"] == "open"}
+            rename = "registry/refresh-repository-names"
+            if (generated / "rename").exists() and rename not in open_branches:
+                try:
+                    open_pr(generated / "rename", rename, base, "Refresh watched repository names",
+                            "Updates the display names returned by GitHub for registered numeric repository IDs. No package or release identity changes.")
+                except (OSError, ValueError) as error:
+                    print(f"- Could not publish repository names: {safe(error)}", file=summary)
+            for path in sorted((generated / "releases").glob("*/*")):
+                branch = f"release/{path.parent.name}/{path.name}"
+                try:
+                    match = RELEASE.fullmatch(branch)
+                    require(match, "watch artifact has an invalid release path")
+                    prefix = f"release/{match['project']}/"
+                    if branch in handled or any(other.startswith(prefix) for other in open_branches):
+                        continue
+                    open_pr(path, branch, base, f"Publish {match['project']} {match['version']}",
+                            "## Verified release\n\nBoth GitHub attestations match the registered repository ID, tag and commit, and the shared signer workflow. "
+                            "The asset sizes and SHA-256 hashes, package manifest, exact Sunrise build and resolved page were checked. "
+                            "The release check will reverify those inputs, build the package and run the scanner before review.")
+                    open_branches.add(branch)
+                except (OSError, ValueError) as error:
+                    print(f"- Could not publish {safe(branch)}: {safe(error)}", file=summary)
         else:
-            body += "\nNo scanner report was available for this run.\n"
+            print("Main changed during observation; no generated files were published.", file=summary)
+
+        # A dispatch retry after a failed request, without redispatching a queued or completed run.
+        for pr in rows(pulls + "open&base=main"):
+            if not own_release(pr) or pr["base"]["ref"] != "main":
+                continue
+            number, sha = pr["number"], pr["head"]["sha"]
+            try:
+                require(PR.fullmatch(str(number)) and SHA.fullmatch(sha), "invalid GitHub PR identity")
+                title = f"Registry release PR {number} at {sha}"
+                if not any(run["display_title"] == title for run in dispatch_runs()):
+                    gh("workflow", "run", WORKFLOW, "--repo", repo, "--ref", "main", "-f", f"pr={number}", "-f", f"head={sha}")
+            except (OSError, ValueError) as error:
+                print(f"- Could not dispatch release check for #{safe(number)}: {safe(error)}", file=summary)
+
+
+def scan_summary(folder, outputs):
+    digest = DIGEST.fullmatch(outputs["summary-digest"])
+    require(digest, "invalid digest for the scanner summary")
+    artifact, = folder.iterdir()
+    with artifact.open("rb") as stream:
+        require(hashlib.file_digest(stream, "sha256").hexdigest() == digest[1],
+                "scanner report does not match the digest from the trusted scanner")
+        stream.seek(0)
+        with zipfile.ZipFile(stream) as archive:
+            require(archive.namelist() == ["summary.md"], "unexpected scanner report artifact shape")
+            with archive.open("summary.md") as summary:
+                # GitHub caps the full comment at 65,536 characters. Keep whole lines.
+                text = summary.read(60_000)
+    truncated = len(text) == 60_000
+    if truncated:
+        text = text.rsplit(b"\n", 1)[0]
+    body = text.decode("utf-8", errors="replace").replace("::", "%3A%3A").replace("##[", "%23%23%5B")
+    if truncated:
+        body += "\n\nReport excerpt; see the full scanner artifact linked above.\n"
+    return body
+
+
+def report(folder):
+    number, sha, _ = dispatch()
+    if not current_run(number, sha):
+        return
+    jobs = json.loads(os.environ["JOB_RESULTS"])
+    attempt = os.environ["GITHUB_RUN_ATTEMPT"]
+    scan = jobs.get("scanner", {}).get("outputs", {})
+    current = (jobs.get("verify", {}).get("outputs", {}).get("attempt") == attempt
+               and scan.get("attempt") == attempt and scan.get("summary-id") and scan.get("summary-digest"))
+    marker = "<!-- registry-v2-release-check -->"
+    target = (f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/attempts/{attempt}")
+    body = f"{marker}\n## Registry release check\n\n[Check run]({target}).\n"
+    body += "\n" + "\n".join(f"- {safe(name)}: {safe(job['result'])}" for name, job in jobs.items()) + "\n"
+    success = False
+    description = "Release checks failed or did not complete"
+    try:
+        if not current or os.environ["REPORT_DOWNLOADED"] != "true":
+            description = "Rerun all jobs"
+            body += "\n**Rerun all jobs**: no scanner report was available from this attempt.\n"
+        else:
+            body += "\n" + scan_summary(folder, scan)
+            success = jobs.keys() == REQUIRED_JOBS and all(job["result"] == "success" for job in jobs.values())
+            if success:
+                description = "All release checks passed"
         comments = rows(f"issues/{number}/comments?per_page=100")
-        current = next((c for c in comments if c["user"]["login"] == BOT and c["body"].startswith(marker)), None)
-        if current:
-            api(f"issues/comments/{current['id']}", "-X", "PATCH", data={"body": body})
+        existing = next((c for c in comments if c["user"]["login"] == BOT and c["body"].startswith(marker)), None)
+        if existing:
+            api(f"issues/comments/{existing['id']}", "-X", "PATCH", data={"body": body})
         else:
             api(f"issues/{number}/comments", "-X", "POST", data={"body": body})
-        success = conclusion == "success" and complete and len(reports) == 1
     finally:
-        api(f"statuses/{sha}", "-X", "POST", data={"context": STATUS, "state": "success" if success else "failure",
-                                                     "description": "All release checks passed" if success else "Release checks failed or did not complete",
-                                                     "target_url": target})
+        set_status(sha, "success" if success else "failure", description)
 
 
 if __name__ == "__main__":
@@ -268,9 +312,11 @@ if __name__ == "__main__":
                 publish(Path(folder))
             case ["verify", folder]:
                 verify(Path(folder))
-            case ["report"]:
-                report()
+            case ["pending"]:
+                pending()
+            case ["report", folder]:
+                report(Path(folder))
             case _:
-                raise ValueError("usage: release_pr.py publish|verify <folder>, or report")
+                raise ValueError("usage: release_pr.py pending, or publish|verify|report <folder>")
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
         sys.exit("registry release: " + safe(error))

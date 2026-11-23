@@ -2,7 +2,7 @@ name: Lint the mod release workflow
 
 on:
   pull_request:
-    paths: ['.github/workflows/release*.yml', '.github/workflows/watch.yml']
+    paths: ['.github/workflows/release*.yml', '.github/workflows/watch.yml', '.github/workflows/scan*.yml', '.github/actions/**', 'bot/ci/cache_guard.py', 'bot/ci/test_cache_guard.py']
 
 permissions: {}
 
@@ -19,6 +19,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Guard the author-facing jobs against cache restores
+        run: |
+          sudo apt-get install -y python3-yaml
+          /usr/bin/python3 -I bot/ci/cache_guard.py
+          /usr/bin/python3 -I -m unittest discover -s bot/ci -p test_cache_guard.py
       - name: Run actionlint 1.7.12
         run: |
           archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
@@ -26,7 +31,9 @@ jobs:
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint" .github/workflows/release*.yml .github/workflows/watch.yml
+          # GitHub supports job-level cache-mode; actionlint 1.7.12 predates the key.
+          "$RUNNER_TEMP/actionlint" -ignore '^unexpected key "cache-mode" for "job" section\.' \
+            .github/workflows/release*.yml .github/workflows/watch.yml .github/workflows/scan*.yml
       - name: Run zizmor 1.22.0
         run: |
           archive="$RUNNER_TEMP/zizmor-x86_64-unknown-linux-gnu.tar.gz"

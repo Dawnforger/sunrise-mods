@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 from pathlib import Path
 
 PLATFORMS = {
@@ -19,6 +20,14 @@ PLATFORMS = {
 }
 # Public Ed25519 release key, as pinned by Sunrise's mod-tool install guide and release workflow.
 KEY = "r53xb3cuafGxZSicLz06KC+xXp9NJdPH8snNmXo5pAc="
+SDK = Path(".sunrise/sdk")
+SDK_API = SDK / "api/crates/sunrise-mod-api"
+
+
+def require_release_contract(meta):
+    contract = meta.get("release_contract")
+    if type(contract) is not int or contract < 1:
+        raise ValueError("signed mod tool does not support registry v2 releases: tool.json needs release_contract >= 1")
 
 
 def install_tool(work):
@@ -59,6 +68,7 @@ def install_tool(work):
     meta = json.loads((work / info).read_bytes())
     if meta["schema"] != 1 or meta["tag"] != "mod-tool" or not re.fullmatch(r"[0-9a-f]{40}", meta["commit"]):
         raise ValueError("invalid signed mod tool descriptor")
+    require_release_contract(meta)
     executable = "cargo-sunrise-mod.exe" if sys.platform == "win32" else "cargo-sunrise-mod"
     binary = work / executable
     with tarfile.open(work / platform_asset, "r:xz") as archive:
@@ -74,6 +84,30 @@ def install_tool(work):
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
         print(f'Signed Sunrise mod tool: `{meta["commit"]}`.', file=summary)
     return binary
+
+
+def new_native_template(target, pin, work):
+    if not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{40}", pin):
+        raise ValueError("native release must pin a full Sunrise SDK commit")
+    tool = install_tool(work)
+    # `new --template native` fetches the pinned signed SDK into a fresh directory;
+    # unlike `check`/`build`, it never compiles or reads files from the mod package.
+    subprocess.run([tool, "sunrise-mod", "new", target, "--template", "native", "--sunrise", pin], cwd=work, check=True)
+    if not (target / SDK_API / "Cargo.toml").is_file():
+        raise ValueError("verified SDK is missing the native template's API crate")
+
+
+def prepare_sdk(source):
+    native = tomllib.loads((source / "sunrise-mod.toml").read_text(encoding="utf-8"))["native"]
+    with tempfile.TemporaryDirectory() as folder:
+        work = Path(folder)
+        template = work / "sdk_seed"
+        new_native_template(template, native["sunrise"], work)
+        destination = source / SDK
+        destination.parent.mkdir(exist_ok=True)
+        if destination.exists():
+            raise ValueError("a source package must not include the SDK directory")
+        shutil.move(template / SDK, destination)
 
 
 def run(source, operation):
@@ -96,9 +130,18 @@ def run(source, operation):
 
 if __name__ == "__main__":
     try:
-        source, operation = sys.argv[1:]
-        if operation not in ("build", "check"):
-            raise ValueError("expected build or check")
-        run(Path(source), operation)
-    except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
+        match sys.argv[1:]:
+            case [source, "build" | "check" as operation]:
+                run(Path(source), operation)
+            case [source, "prepare-sdk"]:
+                prepare_sdk(Path(source))
+            case [source, "template-fixture", pin]:
+                source = Path(source).absolute()
+                with tempfile.TemporaryDirectory() as folder:
+                    new_native_template(source, pin, Path(folder))
+                subprocess.run(["cargo", "generate-lockfile", "--manifest-path", source / "Cargo.toml"], check=True)
+                shutil.rmtree(source / ".sunrise")
+            case _:
+                raise ValueError("expected <folder> build|check|prepare-sdk, or <folder> template-fixture <commit>")
+    except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError) as error:
         sys.exit("release build: " + str(error).encode("unicode_escape").decode("ascii").replace("::", "%3A%3A").replace("##[", "%23%23%5B"))

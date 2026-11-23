@@ -34,16 +34,11 @@ jobs:
       - run: mkdir -p mods files site
       - run: cargo-sunrise-mod sunrise-mod registry list . > files.txt
       - run: cargo-sunrise-mod sunrise-mod registry list . --build-assets > descriptors.json
-      # As in check: the cache keeps our own runs out of the download counts.
-      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: files
-          key: smod-files-${{ hashFiles('files.txt', 'descriptors.json') }}
-          restore-keys: smod-files-
+      # The write-enabled publisher reads only fresh downloads, not a restored cache.
       # Nothing becomes a public asset here before the build below has checked it. A file comes from its
       # `<id>-<version>` release here, else from the author's release for a stable row or `staging` for an older one;
       # each download stops at the tool's size limit, or at the size a verified descriptor gives its archive.
-      - name: Download every listed file not cached
+      - name: Download every listed file
         run: |
           python3 -I scripts/fetch_files.py "${{ github.repository }}" files.txt files
           python3 -I scripts/fetch_files.py "${{ github.repository }}" descriptors.json files
