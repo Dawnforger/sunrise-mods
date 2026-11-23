@@ -166,6 +166,8 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: transfer-mod
         with:
+          # With archive off the file's own name is the artifact's; naming it here makes overwrite act on that name.
+          name: ${{ steps.package.outputs.stem }}.smod
           path: ${{ runner.temp }}/sunrise-assets/${{ steps.package.outputs.stem }}.smod
           archive: false
           overwrite: true
@@ -173,6 +175,8 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: transfer-page
         with:
+          # With archive off the file's own name is the artifact's; naming it here makes overwrite act on that name.
+          name: ${{ steps.package.outputs.stem }}.page.tar
           path: ${{ runner.temp }}/sunrise-assets/${{ steps.package.outputs.stem }}.page.tar
           archive: false
           overwrite: true
