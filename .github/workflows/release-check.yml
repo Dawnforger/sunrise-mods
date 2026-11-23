@@ -85,8 +85,10 @@ jobs:
 
   build:
     name: Build / ${{ matrix.host }}
-    needs: verify
-    if: needs.verify.outputs.attempt == github.run_attempt && needs.verify.outputs.source != ''
+    # The release's dependencies run code here (build scripts, proc macros), so wait for this
+    # attempt's scanner: it fails on a dependency known to be malware and passes ordinary flags.
+    needs: [verify, scanner]
+    if: needs.verify.outputs.attempt == github.run_attempt && needs.verify.outputs.source != '' && needs.scanner.result == 'success' && needs.scanner.outputs.attempt == github.run_attempt
     runs-on: ${{ matrix.runner }}
     # Package build scripts and proc macros get no repository cache access.
     cache-mode: none
