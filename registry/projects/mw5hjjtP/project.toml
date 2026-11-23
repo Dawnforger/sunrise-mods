@@ -1,0 +1,9 @@
+id = "mw5hjjtP"
+slug = "frontier"
+mod = "frontier"
+kind = "native-mod"
+owners = ["Zekrenlight"]
+repository = 1465013078
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

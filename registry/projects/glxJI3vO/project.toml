@@ -1,0 +1,9 @@
+id = "glxJI3vO"
+slug = "sunrise_tweaks"
+mod = "sunrise_tweaks"
+kind = "native-mod"
+owners = ["Flo-bot-png"]
+repository = 1465959272
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

@@ -1,0 +1,9 @@
+id = "zuexvwjV"
+slug = "sunnyf3"
+mod = "sunnyf3"
+kind = "native-mod"
+owners = ["Zekrenlight"]
+repository = 1464968518
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

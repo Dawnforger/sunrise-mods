@@ -1,0 +1,5 @@
+name = "Flo-bot-png/chunksmith-bridge"
+
+[[package]]
+path = "."
+project = "0NvLznct"

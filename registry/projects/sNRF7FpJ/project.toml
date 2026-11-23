@@ -1,0 +1,9 @@
+id = "sNRF7FpJ"
+slug = "motion_blur"
+mod = "motion_blur"
+kind = "native-mod"
+owners = ["GeorgeDev22"]
+repository = 1463524125
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

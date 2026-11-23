@@ -1,0 +1,9 @@
+id = "gVfFLg2J"
+slug = "ae2"
+mod = "ae2"
+kind = "native-mod"
+owners = ["Joeypc6"]
+repository = 1468450230
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

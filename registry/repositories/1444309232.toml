@@ -1,0 +1,5 @@
+name = "Dawnforger/occultism-horizon"
+
+[[package]]
+path = "."
+project = "KAEfmgil"

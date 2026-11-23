@@ -1,0 +1,9 @@
+id = "69N1Wg7O"
+slug = "hookline"
+mod = "hookline"
+kind = "native-mod"
+owners = ["Zekrenlight"]
+repository = 1464968076
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

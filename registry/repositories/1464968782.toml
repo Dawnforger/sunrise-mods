@@ -1,0 +1,5 @@
+name = "Zekrenlight/supercam"
+
+[[package]]
+path = "."
+project = "EEMBWoEh"
