@@ -1,0 +1,18 @@
+version = "1.1.1"
+tag = "v1.1.1"
+published = "2026-11-23"
+sunrise = "nightly-2026-11-20-9425651"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/mcwfences/releases/download/v1.1.1/mcwfences-1.1.1.smod"
+size = 530821
+sha256 = "3529a9515d9d345a822592f27f736675a6a5dc1a3e292eca6cbf31f35cf12c38"
+attestation = "https://github.com/arismoko/mcwfences/releases/download/v1.1.1/mcwfences-1.1.1.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/mcwfences/releases/download/v1.1.1/mcwfences-1.1.1.page.tar"
+size = 752128
+sha256 = "8a5fdadf05cf5dfa83f3fd725ac926efa7ed74db807701efd6a1ef0684939c81"
+attestation = "https://github.com/arismoko/mcwfences/releases/download/v1.1.1/mcwfences-1.1.1.page.tar.sigstore.json"
