@@ -1,0 +1,8 @@
+id = "occultism"
+name = "Occultism"
+summary = "Occultism by KliKli, ported to Sunrise: ritual circles, spirits and their jobs, possessed creatures, the guide book, dimensional storage and the mineshaft."
+repo = "Dawnforger/occultism-horizon"
+repo_id = 1444309232
+manifest = "sunrise-mod.toml"
+track = { branch = "sunrise" }
+icon = "icons/occultism.png"
