@@ -281,5 +281,7 @@ Enable **Allow GitHub Actions to create and approve pull requests** before turni
 Require `registry-v2/release-check` on `main` for every PR. A no-checkout workflow reports success
 with `not a release` for PRs that change no files under `registry/projects/*/releases/` or
 `registry/projects/*/page/`. Only the dispatched check can pass a PR that changes those paths.
+GitHub starts no pull request workflow for a PR the bot opens, so the watcher asks that same
+workflow by number to look at its own maintenance PRs, such as a repository rename.
 A maintainer must approve the ordinary `check` and `dco` workflow runs for PRs the bot opens with
 `GITHUB_TOKEN`.

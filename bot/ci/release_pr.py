@@ -25,6 +25,7 @@ REQUIRED_JOBS = {"pending", "verify", "build", "scanner"}
 BOT = "github-actions[bot]"
 STATUS = "registry-v2/release-check"
 WORKFLOW = "release-check.yml"
+NOT_A_RELEASE = "release-not-applicable.yml"
 MAIN = "refs/heads/main"
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -236,9 +237,20 @@ def publish(generated):
 
         # A dispatch retry after a failed request, without redispatching a queued or completed run.
         for pr in rows(pulls + "open&base=main"):
-            if not own_release(pr) or pr["base"]["ref"] != "main":
+            if not own_bot_pr(pr) or pr["base"]["ref"] != "main":
                 continue
             number, sha = pr["number"], pr["head"]["sha"]
+            if not own_release(pr):
+                # GitHub starts no pull_request workflow for a PR this token opened, so the
+                # classifier that marks non-release PRs is asked to look at it. It decides by
+                # the PR's changed paths, never by its branch name.
+                try:
+                    require(PR.fullmatch(str(number)) and SHA.fullmatch(sha), "invalid GitHub PR identity")
+                    if not any(status["context"] == STATUS for status in api(f"commits/{sha}/statuses?per_page=100")):
+                        gh("workflow", "run", NOT_A_RELEASE, "--repo", repo, "--ref", "main", "-f", f"pr={number}")
+                except (OSError, ValueError) as error:
+                    print(f"- Could not dispatch the non-release check for #{safe(number)}: {safe(error)}", file=summary)
+                continue
             try:
                 require(PR.fullmatch(str(number)) and SHA.fullmatch(sha), "invalid GitHub PR identity")
                 title = f"Registry release PR {number} at {sha}"

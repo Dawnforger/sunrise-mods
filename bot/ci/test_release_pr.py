@@ -70,6 +70,20 @@ class ReleasePRTests(unittest.TestCase):
         self.assertNotIn("::error", text)
         self.assertNotIn("##[", text)
 
+    def test_a_maintenance_pr_is_sent_to_the_non_release_classifier_once(self):
+        rename = pull("registry/refresh-repository-names", number=12)
+        summary = self.folder / "summary.md"
+        for statuses, expected in (([], 1), ([{"context": release.STATUS}], 0)):
+            api = Mock(side_effect=[{"object": {"sha": "0" * 40}}, statuses])
+            with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)), patch.object(release, "api", api), \
+                 patch.object(release, "rows", return_value=[rename]), \
+                 patch.object(release, "git", return_value=SHA.encode()), patch.object(release, "gh") as gh:
+                release.publish(self.folder)
+            self.assertEqual(gh.call_count, expected)
+            if expected:
+                gh.assert_called_once_with("workflow", "run", release.NOT_A_RELEASE, "--repo", REPO,
+                                           "--ref", "main", "-f", "pr=12")
+
     def report_jobs(self, attempt="1"):
         path = self.folder / "summary.zip"
         with zipfile.ZipFile(path, "w") as archive:
