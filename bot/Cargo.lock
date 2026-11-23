@@ -790,10 +790,12 @@ dependencies = [
  "serde_json",
  "sunrise-mod-package",
  "sunrise-release-sign",
+ "tar",
  "tempfile",
  "time",
  "toml",
  "url",
+ "zip",
 ]
 
 [[package]]

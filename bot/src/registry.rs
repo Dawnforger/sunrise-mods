@@ -13,6 +13,8 @@ use crate::{
 };
 
 pub struct Registry {
+    pub watched: Watched,
+    pub release_workflow: WorkflowUse,
     pub categories: Vec<Category>,
     pub projects: BTreeMap<ProjectId, ProjectEntry>,
     pub fits: BTreeMap<ProjectId, BTreeMap<Version, Vec<BuildName>>>,
@@ -46,7 +48,7 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
     let revoked = tree
         .toml::<Revocations>(&revoked_path, top.remove(OsStr::new("revoked.toml")))
         .map_or_else(Vec::new, |value| value.revoked);
-    tree.toml::<ReleaseWorkflow>(
+    let release_workflow = tree.toml::<ReleaseWorkflow>(
         &root.join("release-workflow.toml"),
         top.remove(OsStr::new("release-workflow.toml")),
     );
@@ -257,7 +259,14 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
     if !problems.is_empty() {
         return Err(problems);
     }
+    let (Some(watched), Some(release_workflow)) = (watched, release_workflow) else {
+        return Err(vec![
+            "registry: missing watched.toml or release-workflow.toml".to_owned(),
+        ]);
+    };
     Ok(Registry {
+        watched,
+        release_workflow: release_workflow.uses,
         categories,
         projects,
         fits,
@@ -323,7 +332,7 @@ fn read_releases(
     releases
 }
 
-fn release_download(url: &str, tag: &str, asset: &str) -> bool {
+pub(crate) fn release_download(url: &str, tag: &str, asset: &str) -> bool {
     // Check the raw authority and repository path, then decode only the release tag and asset.
     // GitHub's browser_download_url can percent-encode a tag such as wayfinder/v1.2.0.
     let Some((repository, download)) = url

@@ -1,0 +1,29 @@
+name: Report registry release check
+
+on:
+  workflow_run:
+    workflows: [Check registry release PR]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  report:
+    # A completion event is separate so cancellation or timeout of the checked run
+    # cannot prevent this job from recording failure. No author code runs here.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Post one report and the status on the checked PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I bot/ci/release_pr.py report

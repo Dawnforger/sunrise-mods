@@ -181,3 +181,48 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
 
 The [two-provider fixture](../bot/tests/fixtures/two-ports/registry/) and
 [its golden index](../bot/tests/fixtures/two-ports/index.json) show two projects for a single in-game ID.
+
+## The watcher and release PR checks
+
+`watch.yml` polls every 30 minutes and can also be started manually on `main`. It looks up each
+repository by its numeric GitHub ID. A rename opens a separate maintenance PR for `watched.toml`;
+it does not change project IDs or rewrite old release URLs. At registration the watcher proposes
+at most the newest correctly signed release, by GitHub publication time. Once a release has been
+approved, older publications are not backfilled. Each project has at most one open release PR, so
+approving an older PR cannot replace a newer page. Eligible later releases are picked in publication
+order. Draft releases never count; signed prereleases can count. Failed candidates and their reasons
+appear in the watch run's summary rather than opening a PR.
+
+The read-only job downloads the `.smod`, page tar and both bundles. It checks GitHub's sizes and
+available hashes, then uses `gh attestation verify` to check each artifact against the release
+workflow and the tagged source commit. It checks the **verified certificate** for the registered
+numeric repository ID and exact `release-v<number>` workflow ref, and requires both bundles to
+agree. Native packages must pin a commit that a signed Sunrise build names. When a content-only
+package has no SDK pin, the watcher records the current signed Nightly's exact build, not the
+moving alias. The checker resolves the same exact build when it checks the PR. The existing
+registry package download cap is 64 MiB (`sunrise_mod_package::index::MAX_FILE`); page entries use
+Sunrise's manifest and screenshot limits. The write job gets only generated registry files. It
+opens `release/<project>/<version>` and dispatches `release-check.yml` on `main` with the PR number
+and exact head SHA. The registry's own GitHub Actions token does this; authors do not need one.
+
+The release check reads the PR's Git tree as data, without checking it out. Only a new release row
+and that project's page are allowed to change. It reverifies the package and page and requires the
+tracked files to match what it regenerated. The scanner receives the unpacked source and the last
+approved package when there is one. Separate hosted jobs use the signed `cargo-sunrise-mod` tool to
+build on Linux and compile-check on Apple-chip macOS and Windows x64. They run without write
+permissions, secrets or a persisted checkout token.
+
+The Linux job does not start the game. The published native `cargo sunrise-mod run` needs prepared
+resources. `sunrise-prepare --server` can prepare the public dedicated-server resources, but a
+dedicated server cannot load client mods. Sunrise's client smoke needs private prepared Minecraft
+client resources, which are not available to these hosted jobs. There is no cackle report: the
+mod tool generates its own Cargo work tree and installs its own rustc wrapper for the SDK-native
+build; it does not expose a cackle entry point into that build.
+
+A separate completion workflow puts the scanner summary and job outcomes in one PR comment and
+records `registry-v2/release-check` on the checked **PR head**, not on the workflow's `main` commit.
+It can record a failure even if the checked run was cancelled or timed out. A skipped or incomplete
+check is not green. The scanner's ordinary flags guide the review; they do not fail a release.
+Enable **Allow GitHub Actions to create and approve pull requests** before turning on the watcher.
+Require `registry-v2/release-check` for release PR merges; maintenance and registration PRs do not
+receive that release status.

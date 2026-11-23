@@ -83,4 +83,6 @@ jobs:
         with:
           name: scan-summary${{ inputs.fixture != '' && format('-{0}', inputs.fixture) || '' }}
           path: scan-output/summary.md
+          # A workflow rerun replaces the prior attempt's report.
+          overwrite: true
           if-no-files-found: error

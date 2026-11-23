@@ -1,0 +1,106 @@
+name: Check registry release PR
+run-name: Registry release PR ${{ inputs.pr }} at ${{ inputs.head }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Open registry release PR number
+        type: string
+        required: true
+      head:
+        description: Exact release PR head commit (40 lowercase hexadecimal characters)
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: registry-v2-release-check-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      attestations: read
+    outputs:
+      previous: ${{ steps.verify.outputs.previous }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build the trusted registry checker
+        run: cargo build --locked --manifest-path bot/Cargo.toml --target-dir "$RUNNER_TEMP/registry-checker"
+      - name: Verify PR scope, signatures, package and page without checking out the PR
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+          PR_HEAD: ${{ inputs.head }}
+          REGISTRY_BOT: ${{ runner.temp }}/registry-checker/debug/registry-bot
+        run: python3 -I bot/ci/release_pr.py verify "$RUNNER_TEMP/release-checked"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-source-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-checked/source/
+          include-hidden-files: true
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.verify.outputs.previous == 'true'
+        with:
+          name: release-previous-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-checked/previous/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  build:
+    name: Build / ${{ matrix.host }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: Linux
+            runner: ubuntu-latest
+            operation: build
+          - host: macOS
+            runner: macos-15
+            operation: check
+          - host: Windows
+            runner: windows-latest
+            operation: check
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-source-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/registry-release-source/
+          digest-mismatch: error
+      - name: Use the signed mod tool against the package's pinned SDK
+        shell: bash
+        env:
+          OPERATION: ${{ matrix.operation }}
+        run: python -I bot/ci/build_release.py "$RUNNER_TEMP/registry-release-source" "$OPERATION"
+
+  scanner:
+    name: Scanner
+    needs: verify
+    permissions:
+      contents: read
+    uses: ./.github/workflows/scan.yml
+    with:
+      source-artifact: release-source-${{ github.run_attempt }}
+      previous-artifact: ${{ needs.verify.outputs.previous == 'true' && format('release-previous-{0}', github.run_attempt) || '' }}

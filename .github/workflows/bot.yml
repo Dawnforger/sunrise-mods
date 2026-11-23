@@ -34,3 +34,13 @@ jobs:
       - name: Check the v2 registry
         working-directory: .
         run: cargo run --locked --manifest-path bot/Cargo.toml -- check .
+      - name: Dry watch of an empty registry (no network)
+        working-directory: .
+        run: |
+          empty="$RUNNER_TEMP/empty-registry"
+          mkdir -p "$empty/registry/projects"
+          cp registry/{categories,release-workflow}.toml "$empty/registry/"
+          printf 'repository = []\n' > "$empty/registry/watched.toml"
+          printf 'revoked = []\n' > "$empty/registry/revoked.toml"
+          cargo run --locked --manifest-path bot/Cargo.toml -- watch "$empty" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/dry-watch"
+          grep -Fx 'No repositories are registered.' "$RUNNER_TEMP/dry-watch/watch.md"

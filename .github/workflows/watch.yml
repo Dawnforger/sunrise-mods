@@ -1,0 +1,60 @@
+name: Watch registered releases
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: registry-v2-watch
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Observe GitHub releases without executing their contents
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cargo run --locked --manifest-path bot/Cargo.toml -- watch . "$GITHUB_REPOSITORY" "$RUNNER_TEMP/watch"
+          cat "$RUNNER_TEMP/watch/watch.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: registry-watch-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/watch/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  publish:
+    needs: observe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: registry-watch-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/watch/
+          digest-mismatch: error
+      - name: Commit generated registry data and dispatch the PR checks on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I bot/ci/release_pr.py publish "$RUNNER_TEMP/watch"
