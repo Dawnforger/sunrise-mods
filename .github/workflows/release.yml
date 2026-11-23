@@ -133,13 +133,23 @@ jobs:
           tag = os.environ['GITHUB_REF_NAME']
           version = tag.rsplit('/', 1)[-1][1:]
           temp = Path(os.environ['RUNNER_TEMP'])
+          package = Path.cwd()
+          output_dir = Path('target/sunrise-mod')
+
+          def require_package_output_dir():
+              if (output_dir.parent.is_symlink() or output_dir.is_symlink() or
+                  output_dir.resolve() != package / output_dir):
+                  raise SystemExit('target/sunrise-mod must be inside the package without symlink directories')
+
           # Calling the verified executable directly bypasses package-local Cargo aliases.
           tool = [temp / 'sunrise-tool/cargo-sunrise-mod', 'sunrise-mod']
           subprocess.run([*tool, 'check', '--release', tag], check=True)
-          outputs = {ext: Path('target/sunrise-mod') / (mod_id + ext) for ext in ('.smod', '.page.tar')}
+          require_package_output_dir()
+          outputs = {ext: output_dir / (mod_id + ext) for ext in ('.smod', '.page.tar')}
           for source in outputs.values():
               source.unlink(missing_ok=True)
           subprocess.run([*tool, 'build'], check=True)
+          require_package_output_dir()
           assets = temp / 'sunrise-assets'
           assets.mkdir()
           for extension, source in outputs.items():
