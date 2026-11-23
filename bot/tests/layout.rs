@@ -25,20 +25,21 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-ports")
 }
 
-fn checkout() -> TempDir {
-    fn copy(source: &Path, dest: &Path) -> io::Result<()> {
-        fs::create_dir_all(dest)?;
-        for entry in fs::read_dir(source)? {
-            let entry = entry?;
-            let target = dest.join(entry.file_name());
-            if entry.file_type()?.is_dir() {
-                copy(&entry.path(), &target)?;
-            } else {
-                fs::copy(entry.path(), target)?;
-            }
+fn copy(source: &Path, dest: &Path) -> io::Result<()> {
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let target = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
         }
-        Ok(())
     }
+    Ok(())
+}
+
+fn checkout() -> TempDir {
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target");
     fs::create_dir_all(&target).unwrap();
     let checkout = tempfile::tempdir_in(target).unwrap();
@@ -47,19 +48,14 @@ fn checkout() -> TempDir {
         &checkout.path().join("registry"),
     )
     .unwrap();
-    fs::rename(
-        checkout.path().join("registry/fit"),
-        checkout.path().join("fixture-fit"),
-    )
-    .unwrap();
     checkout
 }
 
 fn fit_checkout() -> TempDir {
     let checkout = checkout();
-    fs::rename(
-        checkout.path().join("fixture-fit"),
-        checkout.path().join("registry/fit"),
+    copy(
+        &fixture().join("generated-fit"),
+        &checkout.path().join("registry/fit"),
     )
     .unwrap();
     checkout
@@ -1073,6 +1069,16 @@ fn malformed_serial_is_a_usage_error() {
     );
     assert_eq!(output.status.code(), Some(2));
     assert!(!temp.path().join("output").exists());
+}
+
+#[test]
+fn shared_two_provider_fixture_passes_checkout_checker_without_generated_fit() {
+    let result = run(&["check", "."], &fixture());
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
 }
 
 #[test]

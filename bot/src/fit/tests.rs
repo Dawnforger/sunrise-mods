@@ -1,5 +1,5 @@
 use super::*;
-use std::io;
+use std::{io, slice::from_ref};
 
 fn scratch() -> tempfile::TempDir {
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target");
@@ -34,7 +34,7 @@ impl Judge for Recorded {
 
 #[test]
 fn cache_reuses_only_known_cells_and_recomputes_a_replaced_build() {
-    let old = registry::load_generated(fixture()).unwrap();
+    let old = registry::load(fixture()).unwrap();
     let bytes = fs::read(fixture().join("index.json")).unwrap();
     let known = cache(serde_json::from_slice(&bytes).unwrap()).unwrap();
     let first = old
@@ -47,7 +47,7 @@ fn cache_reuses_only_known_cells_and_recomputes_a_replaced_build() {
         .next()
         .unwrap();
     let hash = first.file.sha256.clone();
-    let mut builds = old.builds.clone();
+    let mut builds = builds::read(&fixture().join("generated-fit/builds.json")).unwrap();
     let name = builds[1].id.clone();
     builds[1].commit = Commit::parse("f".repeat(40)).unwrap();
     let target = scratch();
@@ -55,7 +55,7 @@ fn cache_reuses_only_known_cells_and_recomputes_a_replaced_build() {
     let mut judge = Recorded::default();
     write_rows(&old, &builds, known, &mut judge, &output).unwrap();
     let row = &generated(&output, "Ab3dE9xQ").release[0];
-    assert_eq!(row.fits, [builds[0].id.clone()]);
+    assert_eq!(row.fits.as_slice(), from_ref(&builds[0].id));
     assert_eq!(
         row.does_not_fit,
         [builds[1].id.clone(), builds[2].id.clone()]
@@ -67,8 +67,9 @@ fn cache_reuses_only_known_cells_and_recomputes_a_replaced_build() {
 
 #[test]
 fn failed_cell_is_omitted_and_retried_while_known_negative_is_cached() {
-    let old = registry::load_generated(fixture()).unwrap();
-    let build = &old.builds[0];
+    let old = registry::load(fixture()).unwrap();
+    let builds = builds::read(&fixture().join("generated-fit/builds.json")).unwrap();
+    let build = &builds[0];
     let hash = old
         .projects
         .values()
@@ -88,18 +89,11 @@ fn failed_cell_is_omitted_and_retried_while_known_negative_is_cached() {
     judge
         .responses
         .insert(failed.clone(), Err("recorded missing surface".into()));
-    write_rows(
-        &old,
-        std::slice::from_ref(build),
-        Cells::new(),
-        &mut judge,
-        &output,
-    )
-    .unwrap();
+    write_rows(&old, from_ref(build), Cells::new(), &mut judge, &output).unwrap();
     let row = &generated(&output, "Ab3dE9xQ").release[0];
     assert!(row.fits.is_empty() && row.does_not_fit.is_empty());
     let row = &generated(&output, "Zz91kLmN").release[0];
-    assert_eq!(row.does_not_fit, [build.id.clone()]);
+    assert_eq!(row.does_not_fit.as_slice(), from_ref(&build.id));
 
     let second_project = old
         .projects
@@ -119,7 +113,7 @@ fn failed_cell_is_omitted_and_retried_while_known_negative_is_cached() {
     let second = target.path().join("second");
     write_rows(
         &old,
-        std::slice::from_ref(build),
+        from_ref(build),
         cache(serde_json::from_value(index).unwrap()).unwrap(),
         &mut judge,
         &second,
@@ -127,12 +121,14 @@ fn failed_cell_is_omitted_and_retried_while_known_negative_is_cached() {
     .unwrap();
     assert_eq!(judge.calls, [failed]);
     assert_eq!(
-        generated(&second, "Ab3dE9xQ").release[0].fits,
-        [build.id.clone()]
+        generated(&second, "Ab3dE9xQ").release[0].fits.as_slice(),
+        from_ref(&build.id)
     );
     assert_eq!(
-        generated(&second, "Zz91kLmN").release[0].does_not_fit,
-        [build.id.clone()]
+        generated(&second, "Zz91kLmN").release[0]
+            .does_not_fit
+            .as_slice(),
+        from_ref(&build.id)
     );
 }
 
@@ -145,7 +141,7 @@ impl Download for RecordedDownload {
 
 #[test]
 fn package_download_checks_hash_before_reading_the_archive() {
-    let old = registry::load_generated(fixture()).unwrap();
+    let old = registry::load(fixture()).unwrap();
     let original = &old
         .projects
         .values()
