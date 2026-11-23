@@ -375,7 +375,7 @@ mod tests {
             // A file against a directory.
             [format!("src/{composed}"), format!("src/{decomposed}/a.rs")],
             // The same three shapes still hold for case, with normalization mixed in.
-            [format!("src/{composed}.rs"), format!("src/CAFE\u{301}.rs")],
+            [format!("src/{composed}.rs"), "src/CAFE\u{301}.rs".to_string()],
             ["Lib/a.rs".to_string(), "lib/b.rs".to_string()],
             ["src/mod".to_string(), "src/MOD/a.rs".to_string()],
         ] {
