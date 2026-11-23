@@ -1,5 +1,32 @@
 # sunrise-mods
 
+## The new registry (being built)
+
+The new registry is being built alongside the current one, at `v2/index.json` on the same site.
+It is not live yet; the current registry and the instructions below are unchanged.
+
+1. **Prepare your repository.** In `page.toml`, write a short summary and a long description and
+   list at least one screenshot under `page/`. Categories are optional. The page uses the mod's
+   icon from `sunrise-mod.toml`. `cargo sunrise-mod new` writes the caller workflow; for an existing
+   mod, `cargo sunrise-mod release setup` writes it without tagging a release. Commit and push these
+   files before submitting.
+2. **Register once.** Sign in with GitHub at [Submit a mod](https://playsunrise.net/mods/submit) and
+   give the link to the public repository you administer. The form checks your release workflow,
+   `sunrise-mod.toml` and `page.toml`, then gives you the registration PR link. Your project gets a
+   permanent ID at registration; it appears in Discover after its first release is approved.
+3. **Release from your package folder.** After registration merges, run `cargo sunrise-mod release <version>`.
+   The command updates the caller workflow and bumps the manifest version, then tags and pushes.
+   The shared workflow publishes a signed `.smod` and a separate signed page bundle. A native mod
+   ships source and `Cargo.lock`, not prebuilt binaries; the launcher builds it on the player's computer.
+   The registry bot checks the release and opens the release PR for you.
+
+Discover lists only signed, reviewed releases on Stable, Nightly and Dev. Nightly and Dev releases
+name an exact build, not a branch. Unreviewed mods stay out of Discover; the launcher offers them
+only through the manual **Add from source** action, with a warning.
+
+See [the registry v2 reference](docs/registry-v2.md) for the file layout and
+[the review guide](REVIEWING.md) for what reviewers check.
+
 ## Listing your mod
 
 There are two ways in, and they differ in what Sunrise checks.
