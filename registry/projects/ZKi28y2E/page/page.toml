@@ -1,0 +1,42 @@
+name = "YUNG's Better Dungeons"
+summary = "Vanilla's monster rooms replaced by YUNG's small dungeons, with banners, spawners and loot piles."
+description = """
+Vanilla's monster rooms replaced by YUNG's small dungeons, with banners, spawners and loot piles.
+
+A port of [YUNG's Better Dungeons](https://github.com/YUNG-GANG/YUNGs-Better-Dungeons) by YUNGNICKYOUNG and Acarii to [Sunrise](https://playsunrise.net) (Minecraft Java 26.3). This version carries the original's small dungeon; its structure type and processors are Rust, read from the original's behaviour.
+
+What it does:
+
+- The small dungeon underground: six room shells (5x5 to 9x9), zombie, skeleton and spider variants, with loot piles, chests, banners, ceiling props and a spawner, assembled from the original's templates and weights.
+- The original's placement (its structure set and biome tag) and loot tables.
+- Vanilla monster rooms no longer generate where the small dungeon can, as in the original (its "Remove Vanilla Dungeons" option is on by default).
+- Operator command `/betterdungeons status` describes the generator.
+
+Differences from the original:
+
+- Only the small dungeon is ported: the zombie, skeleton and spider dungeons, the small Nether dungeon and their own processors are not yet.
+- The status command is this port's own; the original has none.
+"""
+authors = [
+    "YUNGNICKYOUNG",
+    "Acarii",
+]
+license = "LGPL-3.0-only"
+homepage = "https://github.com/arismoko/yungs_better_dungeons"
+icon = "icon.png"
+categories = [
+    "worldgen",
+    "adventure",
+]
+
+[[screenshots]]
+path = "banner-room.png"
+caption = "A small dungeon with its banner, spawner, chains and skull."
+
+[[screenshots]]
+path = "natural-dungeon.png"
+caption = "A small dungeon generated underground, with its chest and barrels."
+
+[[screenshots]]
+path = "chest-loot.png"
+caption = "A dungeon chest's loot."
