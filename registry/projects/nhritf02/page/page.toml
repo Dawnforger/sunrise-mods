@@ -1,0 +1,37 @@
+name = "YUNG's Better Jungle Temples"
+summary = "Jungle temples redesigned as overgrown ruins with traps, puzzles and a treasure room."
+description = """
+Jungle temples redesigned as overgrown ruins with traps, puzzles and a treasure room.
+
+What it adds:
+
+- A new jungle temple: an overgrown ruin of 127 templates over several floors, with traps, a challenge room, a treasure room and a campsite outside.
+- Its own placement with YUNG's rules: no oceans or rivers nearby, and an exclusion zone around other temples.
+- Its palette, pillar, torch and vine processors, with the original's chances.
+- Vanilla jungle temples no longer generate, as in the original (its "Disable Vanilla Jungle Temples" option is on by default).
+
+Differences from the original:
+
+- The pool elements for other mods (Create, Supplementaries, Alex's Mobs) are off, so a temple never names a block that isn't there.
+
+A port of YUNG's Better Jungle Temples by YUNGNICKYOUNG and Tera, under the LGPL v3.0 only.
+"""
+authors = [
+    "YUNGNICKYOUNG",
+    "Tera",
+]
+license = "LGPL-3.0-only"
+homepage = "https://github.com/arismoko/yungs_better_jungle_temples"
+icon = "icon.png"
+categories = [
+    "worldgen",
+    "adventure",
+]
+
+[[screenshots]]
+path = "temple-exterior.png"
+caption = "A Better Jungle Temple's tower over the canopy."
+
+[[screenshots]]
+path = "dispenser-chamber.png"
+caption = "A trapped chamber inside the temple."

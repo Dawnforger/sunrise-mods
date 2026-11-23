@@ -1,0 +1,18 @@
+version = "0.3.1"
+tag = "v0.3.1"
+published = "2026-11-23T07:20:30Z"
+sunrise = "nightly-2026-11-20-9425651"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/yungs_better_jungle_temples/releases/download/v0.3.1/betterjungletemples-0.3.1.smod"
+size = 646527
+sha256 = "97774d82fb6cb06a1099c29a52f69d83c6dbab88bc12cda0e600d1765997bf5d"
+attestation = "https://github.com/arismoko/yungs_better_jungle_temples/releases/download/v0.3.1/betterjungletemples-0.3.1.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/yungs_better_jungle_temples/releases/download/v0.3.1/betterjungletemples-0.3.1.page.tar"
+size = 1145344
+sha256 = "6cd33260330dfc469c95d707993658698b3677de7dce5579c5929f3dc8b46cb8"
+attestation = "https://github.com/arismoko/yungs_better_jungle_temples/releases/download/v0.3.1/betterjungletemples-0.3.1.page.tar.sigstore.json"
