@@ -271,6 +271,9 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
                 .join(id.as_str())
                 .join("releases")
                 .join(format!("{}.toml", release.version));
+            if release.kind != entry.project.kind {
+                tree.problem(&path, "release kind does not match the project kind");
+            }
             for dependency in &release.dependencies {
                 if let Some(target) = &dependency.project {
                     match projects.get(target) {
@@ -445,34 +448,62 @@ fn read_collections(
 
 /// Refuses a change to a collection by anyone but an owner of every project it lists, before
 /// and after the change. Ownership is read from `base`, so a pull request cannot grant it to
-/// itself.
+/// itself. Of `base` only the collection files and the members' `project.toml` are read: the
+/// base commit was checked by its own checker, and a pull request may change what a row holds.
 pub fn collection_author(base: &Path, head: &Path, login: &str) -> Result<(), String> {
-    let before = load(base).map_err(|e| e.join("\n"))?;
     let after = load(head).map_err(|e| e.join("\n"))?;
+    let read = |path: PathBuf| match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("{}: {error}", path.display())),
+    };
+    let collections = Path::new("registry/collections");
+    let mut ids: BTreeSet<ProjectId> = after.collections.keys().cloned().collect();
+    if let Ok(entries) = std::fs::read_dir(base.join(collections)) {
+        for entry in entries {
+            let name = entry.map_err(|e| e.to_string())?.file_name();
+            if let Some(id) = name
+                .to_str()
+                .and_then(|name| ProjectId::parse(name.into()).ok())
+            {
+                ids.insert(id);
+            }
+        }
+    }
     let files = |checkout: &Path, id: &ProjectId| {
-        let dir = checkout.join("registry/collections").join(id.as_str());
+        let dir = checkout.join(collections).join(id.as_str());
         (
             std::fs::read(dir.join("collection.toml")).ok(),
             std::fs::read(dir.join("icon.png")).ok(),
         )
     };
-    let ids: BTreeSet<_> = before
-        .collections
-        .keys()
-        .chain(after.collections.keys())
-        .collect();
-    for id in ids {
+    for id in &ids {
         if files(base, id) == files(head, id) {
             continue;
         }
-        let members = [&before, &after]
-            .into_iter()
-            .filter_map(|registry| registry.collections.get(id))
-            .flat_map(|entry| &entry.collection.member);
+        let file = base
+            .join(collections)
+            .join(id.as_str())
+            .join("collection.toml");
+        let before = read(file.clone())?
+            .map(|text| toml::from_str::<Collection>(&text))
+            .transpose()
+            .map_err(|error| format!("{}: {error}", file.display()))?;
+        let members = before
+            .iter()
+            .chain(after.collections.get(id).map(|entry| &entry.collection))
+            .flat_map(|collection| &collection.member);
         for member in members {
-            let owns = before.projects.get(&member.project).is_some_and(|entry| {
-                entry
-                    .project
+            let file = base
+                .join("registry/projects")
+                .join(member.project.as_str())
+                .join("project.toml");
+            let project = read(file.clone())?
+                .map(|text| toml::from_str::<Project>(&text))
+                .transpose()
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+            let owns = project.is_some_and(|project| {
+                project
                     .owners
                     .iter()
                     .any(|owner| owner.as_str().eq_ignore_ascii_case(login))

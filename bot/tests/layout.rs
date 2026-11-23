@@ -843,6 +843,22 @@ fn project_must_be_listed_by_a_repository_file() {
 }
 
 #[test]
+fn every_release_has_its_projects_kind() {
+    let temp = checkout();
+    replace(
+        temp.path(),
+        "registry/projects/Zz91kLmN/project.toml",
+        "kind = \"mod\"",
+        "kind = \"native-mod\"",
+    );
+    rejected(
+        temp.path(),
+        "registry/projects/Zz91kLmN/releases/2.0.0-beta.1.toml",
+        "release kind does not match the project kind",
+    );
+}
+
+#[test]
 fn release_must_have_page() {
     let temp = checkout();
     fs::remove_dir_all(temp.path().join(PAGE).parent().unwrap()).unwrap();
@@ -1307,4 +1323,9 @@ fn only_an_owner_of_every_member_on_the_base_commit_changes_a_collection() {
     replace(same.path(), COLLECTION, "Both ports.", "Two ports.");
     assert!(!author(head.path(), same.path(), "stranger").0);
     assert!(author(head.path(), same.path(), "Example").0);
+    // The base commit is read only for collections and owners: a release row this checker
+    // no longer accepts does not stop the pull request that changes the rows.
+    replace(head.path(), RELEASE, "kind = \"native-mod\"\n", "");
+    assert!(author(head.path(), same.path(), "Example").0);
+    assert!(!author(head.path(), same.path(), "stranger").0);
 }

@@ -1,4 +1,5 @@
 version = "3.1.5"
+kind = "mod"
 tag = "v3.1.5"
 published = "2026-11-23T06:52:35Z"
 sunrise = "nightly-2026-11-20-9425651"
