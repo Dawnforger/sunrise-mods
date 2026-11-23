@@ -291,7 +291,7 @@ pub struct Asset {
     pub attestation: HttpsUrl,
 }
 
-#[derive(Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
     #[serde(rename = "mod")]

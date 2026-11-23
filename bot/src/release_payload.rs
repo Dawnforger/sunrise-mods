@@ -205,7 +205,7 @@ pub fn source(smod: &Path, dest: &Path, native: bool) -> Result<(), String> {
     let mut paths = BTreeSet::new();
     let mut dirs = BTreeMap::new();
     for i in 0..zip.len() {
-        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
+        let file = zip.by_index(i).map_err(|e| e.to_string())?;
         if file.is_dir() {
             continue;
         }
