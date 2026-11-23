@@ -1,0 +1,19 @@
+version = "1.2.0"
+kind = "native-mod"
+tag = "v1.2.0"
+published = "2026-11-23T19:08:18Z"
+sunrise = "dev-2026-11-22-7cfdf81"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/mcwfences/releases/download/v1.2.0/mcwfences-1.2.0.smod"
+size = 775081
+sha256 = "d77a7820c48fe109b83b064ce28ff6481cb318185ce7b199f6b273b5dde44bc7"
+attestation = "https://github.com/arismoko/mcwfences/releases/download/v1.2.0/mcwfences-1.2.0.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/mcwfences/releases/download/v1.2.0/mcwfences-1.2.0.page.tar"
+size = 752640
+sha256 = "5b3db91cfbbfe0bf4101da53f8e8f2f530e00ed4fd613c7c3a49af08205afae9"
+attestation = "https://github.com/arismoko/mcwfences/releases/download/v1.2.0/mcwfences-1.2.0.page.tar.sigstore.json"

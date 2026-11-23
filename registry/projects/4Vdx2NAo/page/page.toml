@@ -1,24 +1,27 @@
 name = "Macaw's Fences and Walls"
-summary = "150 fences, gates, walls and hedges in eleven woods and many stone finishes."
+summary = "198 fences, gates, walls and hedges in every wood, in metal and in many stone finishes."
 description = """
-150 fences, gates, walls and hedges in eleven woods and many stone finishes.
+198 fences, gates, walls and hedges in every wood, in metal and in many stone finishes.
 
-A port of [Macaw's Fences and Walls](https://github.com/sketchmacaw/Fences) by Sketch Macaw and Peachy Macaw to [Sunrise](https://playsunrise.net) (Minecraft Java 26.3), as a content mod: the original's blocks, models, textures, recipes and strings, with no code.
+A port of [Macaw's Fences and Walls](https://github.com/sketchmacaw/Fences) by Sketch Macaw and Peachy Macaw to [Sunrise](https://playsunrise.net) (Minecraft Java 26.3), as a content mod with a small native part: the original's blocks, models, textures, recipes and strings, plus the wired fences' contact damage, the metal fences' joining and the curved gates.
 
 What it does:
 
-- Picket, stockade, horse and wired fences, highley and pyramid gates and modern railings in eleven woods.
+- Picket, stockade, horse and wired fences, highley and pyramid gates and modern railings in every wood, pale oak and poplar included.
 - Pillared and grass-topped walls in stone finishes, and leaf hedges.
+- Fourteen metal fence designs, and curved gates in every wood and in metal, which open together with the gates touching them.
 - Fences and walls join their neighbours, gates face the way you place them, and fences can be waterlogged.
-- 192 recipes (crafting and stonecutting), drops and a creative tab.
+- Wired wood fences and the wooden cheval de frise hurt what stands in them (2 cactus damage), and the iron cheval de frise hurts more (4).
+- 241 recipes (crafting and stonecutting), drops and a creative tab.
 
 Differences from the original:
 
-- The wired fences don't hurt you when you walk into them; that is Java code.
+- None known: the wired fences' contact damage, the metal fences and the curved gates are ported.
 """
 authors = [
     "Sketch Macaw",
     "Peachy Macaw",
+    "arismoko",
 ]
 license = "MIT"
 homepage = "https://github.com/arismoko/mcwfences"
