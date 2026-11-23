@@ -1,0 +1,9 @@
+id = "hpCoCCIB"
+slug = "additional-lights"
+mod = "additional_lights"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300393
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

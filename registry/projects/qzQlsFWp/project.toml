@@ -1,0 +1,9 @@
+id = "qzQlsFWp"
+slug = "yungs-extras"
+mod = "yungsextras"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300354
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

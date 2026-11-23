@@ -1,0 +1,9 @@
+id = "pLyRmLR3"
+slug = "silents-gems"
+mod = "silentgems"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300454
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

@@ -1,0 +1,9 @@
+id = "cqXLbgxI"
+slug = "macaws-trapdoors"
+mod = "mcwtrpdoors"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300497
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

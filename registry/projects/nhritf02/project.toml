@@ -1,0 +1,9 @@
+id = "nhritf02"
+slug = "yungs-better-jungle-temples"
+mod = "betterjungletemples"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300223
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

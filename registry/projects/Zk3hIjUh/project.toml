@@ -1,0 +1,9 @@
+id = "Zk3hIjUh"
+slug = "falling-trees"
+mod = "fallingtrees"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300372
+path = "fallingtrees"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

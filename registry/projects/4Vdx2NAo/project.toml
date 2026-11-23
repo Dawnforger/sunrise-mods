@@ -1,0 +1,9 @@
+id = "4Vdx2NAo"
+slug = "macaws-fences-and-walls"
+mod = "mcwfences"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300570
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

@@ -6,3 +6,183 @@ name = "sunrise-org/sunrise-minimap"
 [[repository.package]]
 path = "."
 project = "lutYnPB0"
+
+[[repository]]
+id = 1468300393
+name = "arismoko/additional_lights"
+
+[[repository.package]]
+path = "."
+project = "hpCoCCIB"
+
+[[repository]]
+id = 1468300279
+name = "arismoko/betterstrongholds"
+
+[[repository.package]]
+path = "."
+project = "pvf5JSuK"
+
+[[repository]]
+id = 1468300422
+name = "arismoko/factory_blocks_forge_fabric_neoforge"
+
+[[repository.package]]
+path = "."
+project = "NQsQbQtl"
+
+[[repository]]
+id = 1468300547
+name = "arismoko/macaws_doors"
+
+[[repository.package]]
+path = "."
+project = "woOSyWLz"
+
+[[repository]]
+id = 1468300594
+name = "arismoko/macaws_paths_and_pavings"
+
+[[repository.package]]
+path = "."
+project = "bSETUGA3"
+
+[[repository]]
+id = 1468300497
+name = "arismoko/macaws_trapdoors"
+
+[[repository.package]]
+path = "."
+project = "cqXLbgxI"
+
+[[repository]]
+id = 1468300454
+name = "arismoko/silents_gems"
+
+[[repository.package]]
+path = "."
+project = "pLyRmLR3"
+
+[[repository]]
+id = 1468300471
+name = "arismoko/simply_light"
+
+[[repository.package]]
+path = "."
+project = "KP1Fa50Q"
+
+[[repository]]
+id = 1468300199
+name = "arismoko/yungs_better_desert_temples"
+
+[[repository.package]]
+path = "."
+project = "NgsSuDWY"
+
+[[repository]]
+id = 1468300322
+name = "arismoko/yungs_better_dungeons"
+
+[[repository.package]]
+path = "."
+project = "ZKi28y2E"
+
+[[repository]]
+id = 1468300142
+name = "arismoko/yungs_better_end_island"
+
+[[repository.package]]
+path = "."
+project = "DSirSR2e"
+
+[[repository]]
+id = 1468300223
+name = "arismoko/yungs_better_jungle_temples"
+
+[[repository.package]]
+path = "."
+project = "nhritf02"
+
+[[repository]]
+id = 1468300297
+name = "arismoko/yungs_better_mineshafts"
+
+[[repository.package]]
+path = "."
+project = "CYalQiib"
+
+[[repository]]
+id = 1468300160
+name = "arismoko/yungs_better_nether_fortresses"
+
+[[repository.package]]
+path = "."
+project = "Bo91N4R1"
+
+[[repository]]
+id = 1468300253
+name = "arismoko/yungs_better_ocean_monuments"
+
+[[repository.package]]
+path = "."
+project = "hPuZyXQ0"
+
+[[repository]]
+id = 1468300177
+name = "arismoko/yungs_better_witch_huts"
+
+[[repository.package]]
+path = "."
+project = "brgDt5sT"
+
+[[repository]]
+id = 1468300354
+name = "arismoko/yungs_extras"
+
+[[repository.package]]
+path = "."
+project = "qzQlsFWp"
+
+[[repository]]
+id = 1468300649
+name = "arismoko/deepbore-quarry"
+
+[[repository.package]]
+path = "deepbore_quarry"
+project = "ihzPxcaa"
+
+[[repository]]
+id = 1468300624
+name = "arismoko/wayfarer-stones"
+
+[[repository.package]]
+path = "wayfarer_stones"
+project = "f0PF6EzQ"
+
+[[repository]]
+id = 1468300372
+name = "arismoko/horizon-ports"
+
+[[repository.package]]
+path = "carryon"
+project = "ZwykgDgN"
+
+[[repository.package]]
+path = "fallingtrees"
+project = "Zk3hIjUh"
+
+[[repository.package]]
+path = "sophisticatedcore"
+project = "1JYI3457"
+
+[[repository.package]]
+path = "yungsbridges"
+project = "aAKT2W7M"
+
+[[repository]]
+id = 1468300570
+name = "arismoko/mcwfences"
+
+[[repository.package]]
+path = "."
+project = "4Vdx2NAo"

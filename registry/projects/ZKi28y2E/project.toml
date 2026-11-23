@@ -1,0 +1,9 @@
+id = "ZKi28y2E"
+slug = "yungs-better-dungeons"
+mod = "betterdungeons"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300322
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

@@ -1,0 +1,9 @@
+id = "aAKT2W7M"
+slug = "yungs-bridges"
+mod = "yungsbridges"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300372
+path = "yungsbridges"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

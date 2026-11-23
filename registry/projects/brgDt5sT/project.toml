@@ -1,0 +1,9 @@
+id = "brgDt5sT"
+slug = "yungs-better-witch-huts"
+mod = "betterwitchhuts"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300177
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

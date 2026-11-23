@@ -1,0 +1,9 @@
+id = "ihzPxcaa"
+slug = "deepbore-quarry"
+mod = "deepbore_quarry"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300649
+path = "deepbore_quarry"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"
