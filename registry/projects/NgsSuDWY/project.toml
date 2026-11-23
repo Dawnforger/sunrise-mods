@@ -1,0 +1,9 @@
+id = "NgsSuDWY"
+slug = "yungs-better-desert-temples"
+mod = "betterdeserttemples"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300199
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

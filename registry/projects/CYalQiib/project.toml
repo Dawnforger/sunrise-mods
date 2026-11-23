@@ -1,0 +1,9 @@
+id = "CYalQiib"
+slug = "yungs-better-mineshafts"
+mod = "bettermineshafts"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1468300297
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

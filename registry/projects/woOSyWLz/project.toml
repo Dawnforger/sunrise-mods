@@ -1,0 +1,9 @@
+id = "woOSyWLz"
+slug = "macaws-doors"
+mod = "mcwdoors"
+kind = "mod"
+owners = ["arismoko"]
+repository = 1468300547
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"
