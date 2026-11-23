@@ -92,7 +92,8 @@ impl<'a> Builds<'a> {
         // Prefer a Stable release if the same commit was also published on a moving channel.
         candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
         for (_, build, channel, release) in candidates {
-            let sdk = signed_sdk(release, &self.repository, &build, channel)?;
+            let size = |name: &str| Ok(release.asset(name)?.size);
+            let sdk = signed_sdk(&release.tag_name, &size, &self.repository, &build, channel)?;
             if !sunrise_mod_package::manifest::revision(&sdk.build.commit) {
                 return Err("signed SDK descriptor has no full commit".into());
             }
@@ -115,19 +116,22 @@ impl<'a> Builds<'a> {
 }
 
 #[derive(Deserialize)]
-struct Sdk {
+pub struct Sdk {
     schema: u32,
-    build: SdkBuild,
+    pub build: SdkBuild,
 }
 
 #[derive(Deserialize)]
-struct SdkBuild {
-    commit: String,
+pub struct SdkBuild {
+    pub commit: String,
     game: String,
 }
 
-fn signed_sdk(
-    release: &github::Release,
+/// Reads `sdk.json` from the game release at `tag`, authenticated by the release signature made
+/// for exactly `build`. `size` gives the listed size of one of the release's assets.
+pub fn signed_sdk(
+    tag: &str,
+    size: &dyn Fn(&str) -> Result<u64, String>,
     repository: &RepositoryName,
     build: &str,
     channel: Option<Channel>,
@@ -137,17 +141,17 @@ fn signed_sdk(
     const MAX_METADATA: u64 = 16 << 20;
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let read = |name: &str| -> Result<Vec<u8>, String> {
-        let asset = release.asset(name)?;
+        let size = size(name)?;
         let url = format!(
             "https://github.com/{}/releases/download/{}/{}",
             repository.as_str(),
-            github::encode(&release.tag_name),
+            github::encode(tag),
             name
         );
         let dest = dir.path().join(name);
-        github::download(&url, &dest, asset.size.min(MAX_METADATA))?;
+        github::download(&url, &dest, size.min(MAX_METADATA))?;
         let bytes = fs::read(dest).map_err(|e| e.to_string())?;
-        if bytes.len() as u64 != asset.size {
+        if bytes.len() as u64 != size {
             return Err(format!("{name}: size does not match the Sunrise release"));
         }
         Ok(bytes)

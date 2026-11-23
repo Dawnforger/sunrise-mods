@@ -794,11 +794,13 @@ name = "registry-bot"
 version = "0.1.0"
 dependencies = [
  "caseless",
+ "minisign-verify",
  "percent-encoding",
  "semver",
  "serde",
  "serde_json",
  "sunrise-mod-package",
+ "sunrise-mod-surface",
  "sunrise-release-sign",
  "tar",
  "tempfile",

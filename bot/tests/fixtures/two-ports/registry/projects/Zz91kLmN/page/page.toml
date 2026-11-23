@@ -6,5 +6,5 @@ license = "MIT"
 icon = "icon.png"
 
 [[screenshots]]
-path = "gallery/map #1 %.png"
+path = ".github/map #1 %.png"
 caption = ""

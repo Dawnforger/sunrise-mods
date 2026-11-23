@@ -8,6 +8,7 @@ use percent_encoding::percent_decode_str;
 use semver::Version;
 
 use crate::{
+    builds::{self, Build},
     schema::*,
     tree::{Entry, Tree},
 };
@@ -17,7 +18,8 @@ pub struct Registry {
     pub release_workflow: WorkflowUse,
     pub categories: Vec<Category>,
     pub projects: BTreeMap<ProjectId, ProjectEntry>,
-    pub fits: BTreeMap<ProjectId, BTreeMap<Version, Vec<BuildName>>>,
+    pub fits: BTreeMap<ProjectId, BTreeMap<Version, FitRelease>>,
+    pub builds: Vec<Build>,
     pub revoked: Vec<Revocation>,
 }
 
@@ -29,6 +31,14 @@ pub struct ProjectEntry {
 }
 
 pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
+    load_inner(checkout, false)
+}
+
+pub fn load_generated(checkout: &Path) -> Result<Registry, Vec<String>> {
+    load_inner(checkout, true)
+}
+
+fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>> {
     let mut tree = Tree::new(checkout);
     let root = Path::new("registry");
     let mut top = match tree.entry(root) {
@@ -63,7 +73,22 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
     if project_dirs.remove(OsStr::new(".gitkeep")) == Some(Entry::Directory) {
         tree.problem(&projects_root.join(".gitkeep"), "expected a regular file");
     }
+    if let Some(entry) = top.remove(OsStr::new("index-key.pub"))
+        && entry != Entry::File
+    {
+        tree.problem(
+            &root.join("index-key.pub"),
+            "expected a regular public key file",
+        );
+    }
+    let fit_path = root.join("fit");
     let fit_dir = top.remove(OsStr::new("fit"));
+    if !generated && fit_dir.is_some() {
+        tree.problem(
+            &fit_path,
+            "fit is generated during publishing and must not be committed",
+        );
+    }
     tree.unknown(root, top);
 
     let mut by_category = BTreeMap::new();
@@ -254,7 +279,25 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
             );
         }
     }
-    let fits = read_fits(&mut tree, &root.join("fit"), fit_dir, &projects);
+    let mut fits = BTreeMap::new();
+    let mut builds = Vec::new();
+    if generated {
+        match fit_dir {
+            Some(Entry::Directory) => {
+                let mut contents = tree.list(&fit_path);
+                let builds_path = fit_path.join("builds.json");
+                match contents.remove(OsStr::new("builds.json")) {
+                    Some(Entry::File) => match builds::read(&checkout.join(&builds_path)) {
+                        Ok(rows) => builds = rows,
+                        Err(message) => tree.problem(&builds_path, message),
+                    },
+                    _ => tree.problem(&builds_path, "expected the generated offered-build list"),
+                }
+                fits = read_fits(&mut tree, &fit_path, contents, &projects, &builds);
+            }
+            _ => tree.problem(&fit_path, "expected the generated fit directory"),
+        }
+    }
     let problems = tree.finish();
     if !problems.is_empty() {
         return Err(problems);
@@ -270,6 +313,7 @@ pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
         categories,
         projects,
         fits,
+        builds,
         revoked,
     })
 }
@@ -437,19 +481,13 @@ fn read_page(
 fn read_fits(
     tree: &mut Tree<'_>,
     dir: &Path,
-    entry: Option<Entry>,
+    contents: crate::tree::Entries,
     projects: &BTreeMap<ProjectId, ProjectEntry>,
-) -> BTreeMap<ProjectId, BTreeMap<Version, Vec<BuildName>>> {
+    builds: &[Build],
+) -> BTreeMap<ProjectId, BTreeMap<Version, FitRelease>> {
     let mut fits = BTreeMap::new();
-    match entry {
-        Some(Entry::Directory) => {}
-        Some(Entry::File) => {
-            tree.problem(dir, "expected a fit directory");
-            return fits;
-        }
-        None => return fits,
-    }
-    for (name, entry) in tree.list(dir) {
+    let offered: BTreeSet<_> = builds.iter().map(|build| &build.id).collect();
+    for (name, entry) in contents {
         let file = dir.join(name);
         let id = file
             .file_stem()
@@ -477,15 +515,24 @@ fn read_fits(
                     format!("fit row names an unknown release {}", row.version),
                 );
             }
-            let builds: BTreeSet<_> = row.fits.iter().collect();
-            if builds.len() != row.fits.len() {
-                tree.problem(
-                    &file,
-                    format!("duplicate build in fits for {}", row.version),
-                );
+            let mut seen = BTreeSet::new();
+            for build in row.fits.iter().chain(&row.does_not_fit) {
+                if !offered.contains(build) {
+                    tree.problem(
+                        &file,
+                        format!("fit row names an unoffered build {}", build.as_str()),
+                    );
+                }
+                if !seen.insert(build) {
+                    tree.problem(
+                        &file,
+                        format!("duplicate build in fit verdicts for {}", row.version),
+                    );
+                }
             }
-            if releases.insert(row.version.clone(), row.fits).is_some() {
-                tree.problem(&file, format!("duplicate fit row for {}", row.version));
+            let version = row.version.clone();
+            if releases.insert(version.clone(), row).is_some() {
+                tree.problem(&file, format!("duplicate fit row for {version}"));
             }
         }
         fits.insert(id, releases);

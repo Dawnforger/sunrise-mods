@@ -1,49 +1,18 @@
+use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use semver::Version;
 use serde::Serialize;
 
-use crate::{registry::Registry, schema::*};
-
-// Keep URL separators and unreserved characters; encode each path segment's
-// other bytes (including raw %, ?, and #) rather than treating them as URL syntax.
-const PATH_SEGMENT: &AsciiSet = &CONTROLS
-    .add(b' ')
-    .add(b'!')
-    .add(b'"')
-    .add(b'#')
-    .add(b'$')
-    .add(b'%')
-    .add(b'&')
-    .add(b'\'')
-    .add(b'(')
-    .add(b')')
-    .add(b'*')
-    .add(b'+')
-    .add(b',')
-    .add(b':')
-    .add(b';')
-    .add(b'<')
-    .add(b'=')
-    .add(b'>')
-    .add(b'?')
-    .add(b'@')
-    .add(b'[')
-    .add(b'\\')
-    .add(b']')
-    .add(b'^')
-    .add(b'`')
-    .add(b'{')
-    .add(b'|')
-    .add(b'}');
+use crate::{builds::Build, registry::Registry, schema::*};
 
 #[derive(Serialize)]
 struct Index<'a> {
     schema: u8,
     serial: u64,
     generated: &'a str,
+    builds: &'a [Build],
     categories: &'a [Category],
     projects: Vec<IndexProject<'a>>,
     revoked: &'a [Revocation],
@@ -93,29 +62,54 @@ struct IndexRelease<'a> {
     sunrise: &'a BuildName,
     workflow: &'a SignerWorkflowRef,
     fits: &'a [BuildName],
+    #[serde(skip_serializing_if = "<[BuildName]>::is_empty")]
+    does_not_fit: &'a [BuildName],
     file: &'a Asset,
     dependencies: &'a [Dependency],
 }
 
-pub fn write(registry: &Registry, serial: u64, generated: &str, dest: &Path) -> io::Result<()> {
+pub fn write(
+    registry: &Registry,
+    checkout: &Path,
+    serial: u64,
+    generated: &str,
+    dest: &Path,
+) -> io::Result<()> {
+    fs::create_dir_all(dest)?;
+    let pages = dest.join("pages");
+    // A publish never mixes the current page set with images in an earlier output.
+    fs::create_dir(&pages)?;
     let projects = registry
         .projects
         .values()
-        .filter_map(|entry| {
-            if entry.releases.is_empty() {
-                return None;
-            }
+        .filter(|entry| !entry.releases.is_empty())
+        .filter_map(|entry| entry.page.as_ref().map(|page| (entry, page)))
+        .map(|(entry, page)| {
             let project = &entry.project;
-            let page = entry.page.as_ref()?;
-            let image_url = |path: &RelativePath| {
-                format!(
-                    "pages/{}/{}",
-                    project.id.as_str(),
-                    utf8_percent_encode(path.as_str(), PATH_SEGMENT)
-                )
+            let id = project.id.as_str();
+            let source = checkout.join("registry/projects").join(id).join("page");
+            let target = pages.join(id);
+            fs::create_dir(&target)?;
+            let stage = |path: &RelativePath| -> io::Result<String> {
+                let bytes = fs::read(source.join(path.as_str()))?;
+                // Select the public extension from the bytes, not the author's filename.
+                let extension = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    "png"
+                } else if bytes.starts_with(b"\xff\xd8\xff") {
+                    "jpg"
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "expected a PNG or JPEG image",
+                    ));
+                };
+                let digest = sunrise_release_sign::sha256_hex(&bytes);
+                let file = format!("{digest}.{extension}");
+                fs::write(target.join(&file), bytes)?;
+                Ok(format!("pages/{id}/{file}"))
             };
             let fit = registry.fits.get(&project.id);
-            Some(IndexProject {
+            Ok(IndexProject {
                 id: &project.id,
                 slug: &project.slug,
                 mod_id: &project.mod_id,
@@ -129,15 +123,17 @@ pub fn write(registry: &Registry, serial: u64, generated: &str, dest: &Path) -> 
                 homepage: page.homepage.as_ref(),
                 issues: page.issues.as_ref(),
                 source: page.source.as_ref(),
-                icon: image_url(&page.icon),
+                icon: stage(&page.icon)?,
                 screenshots: page
                     .screenshots
                     .iter()
-                    .map(|shot| IndexScreenshot {
-                        path: image_url(&shot.path),
-                        caption: &shot.caption,
+                    .map(|shot| {
+                        Ok(IndexScreenshot {
+                            path: stage(&shot.path)?,
+                            caption: &shot.caption,
+                        })
                     })
-                    .collect(),
+                    .collect::<io::Result<_>>()?,
                 categories: &page.categories,
                 repository: IndexRepository {
                     id: project.repository,
@@ -148,30 +144,32 @@ pub fn write(registry: &Registry, serial: u64, generated: &str, dest: &Path) -> 
                 releases: entry
                     .releases
                     .values()
-                    .map(|release| IndexRelease {
-                        version: &release.version,
-                        published: &release.published,
-                        sunrise: &release.sunrise,
-                        workflow: &release.workflow,
-                        fits: fit
-                            .and_then(|rows| rows.get(&release.version))
-                            .map_or(&[], Vec::as_slice),
-                        file: &release.file,
-                        dependencies: &release.dependencies,
+                    .map(|release| {
+                        let row = fit.and_then(|rows| rows.get(&release.version));
+                        IndexRelease {
+                            version: &release.version,
+                            published: &release.published,
+                            sunrise: &release.sunrise,
+                            workflow: &release.workflow,
+                            fits: row.map_or(&[], |row| row.fits.as_slice()),
+                            does_not_fit: row.map_or(&[], |row| row.does_not_fit.as_slice()),
+                            file: &release.file,
+                            dependencies: &release.dependencies,
+                        }
                     })
                     .collect(),
             })
         })
-        .collect();
+        .collect::<io::Result<_>>()?;
     let index = Index {
         schema: 2,
         serial,
         generated,
+        builds: &registry.builds,
         categories: &registry.categories,
         projects,
         revoked: &registry.revoked,
     };
-    std::fs::create_dir_all(dest)?;
     // Rename over the destination so an existing index.json symlink is never followed.
     let mut output = tempfile::NamedTempFile::new_in(dest)?;
     let mut writer = io::BufWriter::new(output.as_file_mut());
