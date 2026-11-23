@@ -1,0 +1,2 @@
+// This inert pattern would report an environment-secrets flag if the file were scanned.
+pub const INCLUSION_FIXTURE: &str = "std::env::var(";

@@ -51,6 +51,27 @@ inert! {
     // ok: non-asset-include-bytes
     let _ = include_bytes!("../assets/icon.png");
 
+    // ruleid: unverified-source-inclusion
+    include!("source.input");
+    // ruleid: unverified-source-inclusion
+    include /* nested /* comment */ */ ! { concat!("generated", ".rs") };
+    // ruleid: unverified-source-inclusion
+    use core::include as import_source;
+    // ruleid: unverified-source-inclusion
+    #[path = "source.input"]
+    // ruleid: unverified-source-inclusion
+    mod external;
+    // ruleid: unverified-source-inclusion
+    #[cfg_attr(any(), path = "source.input")]
+    // ruleid: unverified-source-inclusion
+    mod alternate;
+    // ruleid: unverified-source-inclusion
+    mod generated;
+    // ok: unverified-source-inclusion
+    mod inline {}
+    // ok: unverified-source-inclusion
+    let _ = include_str!("source.input");
+
     // ruleid: unsafe-code
     unsafe {};
     // ok: unsafe-code

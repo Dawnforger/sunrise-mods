@@ -95,8 +95,6 @@ def source_policy(root, manifests, packages, failures):
     for p in packages:
         if p.get("source", "") not in ("", CRATES_IO, SPARSE_IO):
             failures.append(("non-crates-io", f"Cargo.lock: {p['name']} {p['version']} has source {p['source']}"))
-        elif p.get("source") and not re.fullmatch(r"[0-9a-f]{64}", p.get("checksum", "")):
-            failures.append(("lockfile-out-of-date", f"Cargo.lock: {p['name']} {p['version']} has no valid checksum"))
     for path, manifest in manifests.items():
         workspace = manifest.get("workspace", {})
         tables = [manifest, workspace, *manifest.get("target", {}).values()]
@@ -215,8 +213,7 @@ def dependency_scan(source, packages, locations, work, failures, flags, note):
         if with_index:
             result = run(["cargo", "fetch", "--locked", "--manifest-path", str(source / "Cargo.toml")], work, env)
             if result.returncode and re.search(r"(?:cannot update the lock file .*because --locked was passed|the lock file .* needs to be updated but --locked was passed)", result.stderr):
-                failures.append(("lockfile-out-of-date", "Cargo.lock does not match the manifests; Cargo --locked refused it."))
-                return
+                raise ScanError("Cargo.lock does not match the manifests; Cargo --locked refused it.")
             require_success(result, "Cargo --locked")
         result = run(deny + ["--frozen", "--metadata-path", str(metadata), "--config",
                              str(SCANNER / "deny.toml" if with_index else config), "check", "--show-stats",
@@ -302,8 +299,8 @@ def release_diff(files, packages, locations, manifests, scripts, macros, prior, 
     modified = added | removed | changed
     crate_roots = {p.parent for p in manifests | old_manifests}
     modified_crates = {next((parent for parent in p.parents if parent in crate_roots), None) for p in modified}
-    for label, paths in (("Build scripts", modified & (scripts | old_scripts)),
-                         ("Proc-macro crates", modified_crates & (macros | old_macros))):
+    for label, paths in (("Build scripts", (scripts ^ old_scripts) | (modified & scripts & old_scripts)),
+                         ("Proc-macro crates", (macros ^ old_macros) | (modified_crates & macros & old_macros))):
         lines.append(f"- {label} changed: " + (", ".join(safe(p) for p in sorted(paths)) if paths else "no"))
     return lines
 
@@ -325,8 +322,6 @@ def scan(source, prior, work, failures, flags, note):
     files = release_files(source)
     manifests = {p: read_toml(f) for p, f in files.items() if p.name == "Cargo.toml"}
     packages = lock_packages(files)
-    if (manifests or Path("Cargo.lock") in files) and not {Path("Cargo.toml"), Path("Cargo.lock")} <= files.keys():
-        failures.append(("lockfile-out-of-date", "A Rust release must include a root Cargo.toml and Cargo.lock."))
     source_policy(source, manifests, packages, failures)
     scripts, macros, targets = build_targets(source, files, manifests)
     semgrep(files, targets, work, flags)
@@ -334,6 +329,11 @@ def scan(source, prior, work, failures, flags, note):
         flags["Build scripts"].append((f"{path}:1", "Review the code Cargo runs before compiling the mod."))
     for path in sorted(macros):
         flags["Proc-macro crates"].append((f"{path / 'Cargo.toml'}:1", "Review the code that runs during compilation."))
+    if (manifests or Path("Cargo.lock") in files) and not {Path("Cargo.toml"), Path("Cargo.lock")} <= files.keys():
+        raise ScanError("A Rust release must include a root Cargo.toml and Cargo.lock.")
+    for p in packages:
+        if p.get("source") in (CRATES_IO, SPARSE_IO) and not re.fullmatch(r"[0-9a-f]{64}", p.get("checksum", "")):
+            raise ScanError(f"Cargo.lock: {p['name']} {p['version']} has no valid checksum")
     locations = lock_locations(files[Path("Cargo.lock")], packages) if packages else {}
     if manifests and not failures:
         dependency_scan(source, packages, locations, work, failures, flags, note)
@@ -349,16 +349,16 @@ def main():
     args.output = args.output.resolve()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     failures, flags, note, diff = [], defaultdict(list), [], []
-    status = 0
+    incomplete = None
     try:
         with tempfile.TemporaryDirectory(dir=args.output.parent) as scratch:
             diff = scan(args.source.absolute(), args.previous, Path(scratch), failures, flags, note)
-        status = int(bool(failures))
     except (ScanError, OSError, ValueError, KeyError, TypeError, AttributeError) as error:
-        failures.append(("scan-incomplete", str(error)))
-        status = 2
+        incomplete = str(error)
     sections = ["## Release scan", "### Hard failures"]
     sections += [f"- **{kind}**: {safe(message)}" for kind, message in sorted(set(failures))] or ["None."]
+    if incomplete is not None:
+        sections += ["", "### Scan incomplete", f"- **scan-incomplete**: {safe(incomplete)}"]
     sections += ["", "### Flags"]
     if not flags:
         sections.append("None.")
@@ -366,8 +366,8 @@ def main():
         sections += ["", f"#### {safe(subject)}"]
         sections += [f"- {safe(location)}: {safe(message)}" for location, message in sorted(set(findings))]
     sections += ["", "### Release diff", *(diff or ["No diff available."]), "", *note]
-    args.output.write_text("\n".join(sections) + "\n")
-    return status
+    args.output.write_text("\n".join(sections) + "\n", encoding="utf-8")
+    return 2 if incomplete is not None else int(bool(failures))
 
 
 if __name__ == "__main__":

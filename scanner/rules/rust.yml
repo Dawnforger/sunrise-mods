@@ -47,6 +47,20 @@ rules:
     patterns:
       - pattern-regex: '\binclude_bytes!\s*\('
       - pattern-not-regex: '\binclude_bytes!\s*\(\s*"(?:\.\./)*assets/(?:[\w-]+/)*[\w.-]+\.(?:png|jpg|jpeg|webp|ogg|wav|json|ttf|otf|mcmeta)"\s*\)'
+  - id: unverified-source-inclusion
+    languages: [rust]
+    severity: WARNING
+    message: Confirm the file this source inclusion resolves to has been reviewed; the offline scan does not resolve includes or modules.
+    # Rust allows comments between tokens, including nested block comments.
+    pattern-regex: >-
+      (*UCP)(?x)
+      (?(DEFINE)
+        (?<block>/\*(?:[^*/]++|/(?!\*)|\*(?!/)|(?&block))*+\*/)
+        (?<trivia>(?:\s++|//[^\n]*+|(?&block))*+)
+      )
+      \binclude\b(?&trivia) (?:!|as\b)
+      | \#(?&trivia)\[(?&trivia)(?:path\b|cfg_attr\b[^\]]*?\bpath\b)(?&trivia) =
+      | \bmod\b(?&trivia)(?:r\#)?\w+(?&trivia) ;
   - id: unsafe-code
     languages: [rust]
     severity: WARNING
