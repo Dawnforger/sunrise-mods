@@ -1,0 +1,9 @@
+id = "Z7SFz2ox"
+slug = "jei"
+mod = "jei"
+kind = "native-mod"
+owners = ["Joeypc6"]
+repository = 1460980278
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

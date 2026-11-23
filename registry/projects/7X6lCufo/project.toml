@@ -1,0 +1,9 @@
+id = "7X6lCufo"
+slug = "better_inventory"
+mod = "better_inventory"
+kind = "native-mod"
+owners = ["Zekrenlight"]
+repository = 1464968980
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

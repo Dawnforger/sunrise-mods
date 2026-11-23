@@ -1,0 +1,9 @@
+id = "RwN3a95s"
+slug = "storm_spirits"
+mod = "storm_spirits"
+kind = "native-mod"
+owners = ["EAnathos"]
+repository = 1449407242
+path = "mods/storm_spirits"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

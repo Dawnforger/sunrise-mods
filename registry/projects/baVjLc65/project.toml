@@ -1,0 +1,9 @@
+id = "baVjLc65"
+slug = "supercapes"
+mod = "supercapes"
+kind = "native-mod"
+owners = ["Zekrenlight"]
+repository = 1464968198
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"

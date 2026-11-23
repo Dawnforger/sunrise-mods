@@ -1,0 +1,69 @@
+name = "EAnathos/sunrise-creatures"
+
+[[package]]
+path = "common"
+project = "M8bq6zGg"
+
+[[package]]
+path = "mods/butterflies"
+project = "qe9B3Uf7"
+
+[[package]]
+path = "mods/cyclops"
+project = "Hj69RRll"
+
+[[package]]
+path = "mods/dung_beetles"
+project = "x0EwCB1L"
+
+[[package]]
+path = "mods/fairies"
+project = "EDGyj5Qi"
+
+[[package]]
+path = "mods/fireflies"
+project = "KqN0gfy9"
+
+[[package]]
+path = "mods/flying_fish"
+project = "q4tpfIcX"
+
+[[package]]
+path = "mods/jellyfish"
+project = "c0wPLpcU"
+
+[[package]]
+path = "mods/ladybugs"
+project = "lg0nzXEj"
+
+[[package]]
+path = "mods/phasmids"
+project = "utIDSCOG"
+
+[[package]]
+path = "mods/scorpions"
+project = "oPJBWpql"
+
+[[package]]
+path = "mods/seagulls"
+project = "HqCzCSkE"
+
+[[package]]
+path = "mods/sporelins"
+project = "Q4PbUt15"
+
+[[package]]
+path = "mods/storm_spirits"
+project = "RwN3a95s"
+
+[[package]]
+path = "mods/vanilla_bestiary"
+project = "WFZs73aL"
+
+[[package]]
+path = "mods/vulture"
+project = "OzOGlZTW"
+
+[[package]]
+path = "mods/worms"
+project = "xiujjEeD"

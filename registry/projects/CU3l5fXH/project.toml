@@ -1,0 +1,9 @@
+id = "CU3l5fXH"
+slug = "jade"
+mod = "jade"
+kind = "native-mod"
+owners = ["Joeypc6"]
+repository = 1463888576
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"
