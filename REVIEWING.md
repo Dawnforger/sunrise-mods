@@ -29,6 +29,7 @@ The [Semgrep rules](scanner/rules/rust.yml) flag:
 - **Raw syscalls and assembly:** Check what they do with the host's privileges and data.
 - **Encoded blobs:** Identify what long hex or Base64 strings contain and how they are used.
 - **Non-asset `include_bytes!`:** Inspect the embedded file or computed path.
+- **Unresolved source inclusions:** Check the files named by `include!`, path overrides and file-backed modules; the scanner does not resolve them.
 - **Unsafe code:** Check host effects and the assumptions the unsafe code relies on.
 
 Flags point to code to read, not reasons to reject. Ordinary RustSec advisories and yanks are warnings.
