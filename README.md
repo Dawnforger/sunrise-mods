@@ -10,10 +10,13 @@ It is not live yet; the current registry and the instructions below are unchange
    icon from `sunrise-mod.toml`. `cargo sunrise-mod new` writes the caller workflow; for an existing
    mod, `cargo sunrise-mod release setup` writes it without tagging a release. Commit and push these
    files before submitting.
-2. **Register once.** Sign in with GitHub at [Submit a mod](https://playsunrise.net/mods/submit) and
-   give the link to the public repository you administer. The form checks your release workflow,
-   `sunrise-mod.toml` and `page.toml`, then gives you the registration PR link. Your project gets a
-   permanent ID at registration; it appears in Discover after its first release is approved.
+2. **Register once.** Open a pull request on this repository that adds your public repository to
+   [`registry/watched.toml`](registry/watched.toml) and one `registry/projects/<project ID>/project.toml`
+   for each package, as [the reference](docs/registry-v2.md) describes. Use GitHub's numeric repository
+   ID (`https://api.github.com/repos/<owner>/<name>`, field `id`) and pick a new project ID of eight
+   characters from `0-9`, `A-Z` and `a-z`. That ID is permanent; the project appears in Discover after
+   its first release is approved. A form at [Submit a mod](https://playsunrise.net/mods/submit) that
+   opens this pull request for you is coming.
 3. **Release from your package folder.** After registration merges, run `cargo sunrise-mod release <version>`.
    The command updates the caller workflow and bumps the manifest version, then tags and pushes.
    The shared workflow publishes a signed `.smod` and a separate signed page bundle. A native mod
