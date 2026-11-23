@@ -1,0 +1,22 @@
+version = "2.0.0-beta.1"
+tag = "wayfinder/v2.0.0-beta.1"
+published = "2026-11-23"
+sunrise = "nightly-2026-11-23-abcdef0"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+
+[file]
+url = "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.smod"
+size = 123456
+sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+attestation = "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.smod.sigstore.json"
+
+[page]
+url = "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.page.tar"
+size = 1234
+sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+attestation = "https://github.com/other/port-collection/releases/download/wayfinder%2Fv2.0.0-beta.1/wayfinder-2.0.0-beta.1.page.tar.sigstore.json"
+
+[[dependencies]]
+mod = "wayfinder"
+project = "Ab3dE9xQ"
+required = false

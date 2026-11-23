@@ -1,0 +1,7 @@
+[package]
+name = "scanner-fixture"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+jfrog_quotes = "=0.1.0"

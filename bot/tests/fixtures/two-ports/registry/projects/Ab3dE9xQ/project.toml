@@ -1,0 +1,9 @@
+id = "Ab3dE9xQ"
+slug = "wayfinder"
+mod = "wayfinder"
+kind = "native-mod"
+owners = ["Example"]
+repository = 123456789
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-22"

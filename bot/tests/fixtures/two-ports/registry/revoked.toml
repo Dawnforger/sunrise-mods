@@ -1,0 +1,10 @@
+[[revoked]]
+project = "Retired0"
+reason = "Listing withdrawn."
+date = "2026-11-25"
+
+[[revoked]]
+project = "Ab3dE9xQ"
+sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+reason = "Old package withdrawn."
+date = "2026-11-24"

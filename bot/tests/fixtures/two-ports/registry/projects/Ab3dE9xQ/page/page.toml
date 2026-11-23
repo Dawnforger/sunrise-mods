@@ -1,0 +1,14 @@
+name = "Wayfinder"
+summary = "Find your way using the new map display."
+description = "Wayfinder adds a map display that follows you as you explore. Mark landmarks, name spots you want to revisit, and hide the display when you no longer need it."
+authors = ["Example"]
+license = "MIT"
+icon = "icon.png"
+homepage = "https://example.org/wayfinder"
+issues = "https://example.org/wayfinder/issues"
+source = "https://github.com/example/wayfinder"
+categories = ["adventure", "utility"]
+
+[[screenshots]]
+path = "map.png"
+caption = "The map on the title screen."
