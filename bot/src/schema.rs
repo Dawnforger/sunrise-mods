@@ -291,6 +291,10 @@ pub struct Project {
     pub workflow: Text,
     #[serde(rename = "registered")]
     pub _registered: CalendarDate,
+    /// The watcher proposes no release of a paused project. Its registration, ID and publisher
+    /// pin stay, and releases already in the registry stay listed.
+    #[serde(default)]
+    pub paused: bool,
 }
 
 #[derive(Deserialize, Serialize, PartialEq)]

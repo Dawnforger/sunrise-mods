@@ -133,13 +133,13 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
         };
         for package in &repo.package {
             let id = &package.project;
-            if has_open_release(&branches.open, id) {
-                continue;
-            }
             let entry = registry
                 .projects
                 .get(id)
                 .ok_or("registered project is missing")?;
+            if entry.project.paused || has_open_release(&branches.open, id) {
+                continue;
+            }
             let approved = latest_approved(entry);
             let mut candidates = candidates(entry, &releases, approved.as_ref());
             if approved.is_none() {
@@ -1120,6 +1120,38 @@ mod tests {
         let downloads = github.downloads.borrow();
         assert_eq!(downloads.len(), 1);
         assert!(downloads[0].contains("/v1.2.0/"));
+    }
+
+    #[test]
+    fn a_paused_project_gets_no_release_proposed() {
+        let root = tempfile::tempdir().unwrap();
+        let base = Path::new(FIXTURE).join("registry");
+        let fixture = root.path().join("registry");
+        for id in ["Ab3dE9xQ", "Zz91kLmN"] {
+            let project = Path::new("projects").join(id);
+            fs::create_dir_all(fixture.join(&project)).unwrap();
+            let text = fs::read_to_string(base.join(&project).join("project.toml")).unwrap();
+            fs::write(
+                fixture.join(&project).join("project.toml"),
+                format!("{text}paused = true\n"),
+            )
+            .unwrap();
+        }
+        fs::create_dir(fixture.join("repositories")).unwrap();
+        for file in [
+            "categories.toml",
+            "repositories/123456789.toml",
+            "repositories/987654321.toml",
+            "revoked.toml",
+            "release-workflow.toml",
+        ] {
+            fs::copy(base.join(file), fixture.join(file)).unwrap();
+        }
+        let out = tempfile::tempdir().unwrap();
+        let github = Recorded::default();
+        run(root.path(), out.path(), &github).unwrap();
+        assert!(github.downloads.borrow().is_empty());
+        assert!(!out.path().join("releases").exists());
     }
 
     #[test]

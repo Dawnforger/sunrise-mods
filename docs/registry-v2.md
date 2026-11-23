@@ -62,6 +62,7 @@ The registration service writes this file when the project is registered.
 | `repository`, `path` | Numeric repository ID and package path, matching the `repositories/` file that lists the project. |
 | `workflow` | Signer workflow path, equal to the part of `uses` before `@`. |
 | `registered` | Registration date. |
+| `paused` | Optional; `true` stops the watcher from proposing releases of this project. The registration, the ID and the publisher pin stay, and releases already in the registry stay listed. Set and cleared in a reviewed PR. |
 
 ### `registry/projects/<project>/releases/<version>.toml`
 
