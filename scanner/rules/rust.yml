@@ -50,7 +50,7 @@ rules:
   - id: unverified-source-inclusion
     languages: [rust]
     severity: WARNING
-    message: Confirm the file this source inclusion resolves to has been reviewed; the offline scan does not resolve includes or modules.
+    message: Confirm the file this source inclusion resolves to has been reviewed; the offline scan does not resolve includes or module paths.
     # Rust allows comments between tokens, including nested block comments.
     pattern-regex: >-
       (*UCP)(?x)
@@ -60,7 +60,18 @@ rules:
       )
       \binclude\b(?&trivia) (?:!|as\b)
       | \#(?&trivia)\[(?&trivia)(?:path\b|cfg_attr\b[^\]]*?\bpath\b)(?&trivia) =
-      | \bmod\b(?&trivia)(?:r\#)?\w+(?&trivia) ;
+  # scan.py drops a match whose module file is in the release at its default path.
+  - id: module-file
+    languages: [rust]
+    severity: WARNING
+    message: No file for this module is in the release at its default path; find what supplies it at build time.
+    pattern-regex: >-
+      (*UCP)(?x)
+      (?(DEFINE)
+        (?<block>/\*(?:[^*/]++|/(?!\*)|\*(?!/)|(?&block))*+\*/)
+        (?<trivia>(?:\s++|//[^\n]*+|(?&block))*+)
+      )
+      \bmod\b(?&trivia)(?:r\#)?\w+(?&trivia) ;
   - id: unsafe-code
     languages: [rust]
     severity: WARNING

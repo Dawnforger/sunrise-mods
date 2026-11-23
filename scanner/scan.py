@@ -24,6 +24,8 @@ DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "dev_dependencies",
 NUMBER = r"(?:0|[1-9][0-9]*)"
 PRERELEASE = rf"(?:{NUMBER}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
 BUILD = r"[0-9A-Za-z-]+"
+# A file-backed module declaration with nothing but white space between its tokens.
+MODULE = re.compile(r"\bmod\s+(?:r#)?(\w+)\s*;")
 SEMVER = re.compile(rf"{NUMBER}\.{NUMBER}\.{NUMBER}(?:-{PRERELEASE}(?:\.{PRERELEASE})*)?(?:\+{BUILD}(?:\.{BUILD})*)?")
 
 
@@ -132,6 +134,22 @@ def source_policy(root, manifests, packages, failures):
     return needs_sdk
 
 
+def module_in_release(files, targets, declaring, lines):
+    """Whether the one `mod name;` in these lines names a file of the release.
+
+    Rust reference, "Module source filenames": a crate root or `mod.rs` finds its
+    modules beside itself, any other file in a folder named after it. Every `.rs`
+    file of the release is scanned, so only a module with no file here (one a build
+    script writes, say) is left for the reviewer. Anything this cannot read stays flagged.
+    """
+    names = MODULE.findall("\n".join(lines))
+    if len(names) != 1:
+        return False
+    beside = declaring.name in ("mod.rs", "lib.rs", "main.rs") or declaring in targets
+    folder = declaring.parent if beside else declaring.with_suffix("")
+    return folder / f"{names[0]}.rs" in files or folder / names[0] / "mod.rs" in files
+
+
 def semgrep(files, targets, work, flags):
     src = work / "rust"
     src.mkdir()
@@ -160,7 +178,12 @@ def semgrep(files, targets, work, flags):
     if report["errors"] or {Path(path).name for path in report["paths"]["scanned"]} != paths.keys():
         raise ScanError("Semgrep did not scan every Rust file without errors.")
     for match in report["results"]:
-        flags[match["check_id"]].append((f"{paths[Path(match['path']).name]}:{match['start']['line']}",
+        name = paths[Path(match["path"]).name]
+        if match["check_id"] == "module-file":
+            lines = files[name].read_text(errors="replace").splitlines()[match["start"]["line"] - 1:match["end"]["line"]]
+            if module_in_release(files, targets, name, lines):
+                continue
+        flags[match["check_id"]].append((f"{name}:{match['start']['line']}",
                                         match["extra"]["message"]))
 
 

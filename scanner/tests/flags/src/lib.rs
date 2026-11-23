@@ -59,15 +59,19 @@ inert! {
     use core::include as import_source;
     // ruleid: unverified-source-inclusion
     #[path = "source.input"]
-    // ruleid: unverified-source-inclusion
+    // ruleid: module-file
     mod external;
     // ruleid: unverified-source-inclusion
     #[cfg_attr(any(), path = "source.input")]
-    // ruleid: unverified-source-inclusion
+    // ruleid: module-file
     mod alternate;
-    // ruleid: unverified-source-inclusion
+    // ruleid: module-file
     mod generated;
-    // ok: unverified-source-inclusion
+    // ruleid: module-file
+    mod /* scan.py reads only plain spacing */ commented;
+    // ruleid: module-file
+    mod present;
+    // ok: module-file
     mod inline {}
     // ok: unverified-source-inclusion
     let _ = include_str!("source.input");
