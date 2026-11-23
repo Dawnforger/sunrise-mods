@@ -134,7 +134,7 @@ def source_policy(root, manifests, packages, failures):
     return needs_sdk
 
 
-def module_in_release(files, targets, declaring, lines):
+def module_in_release(files, roots, declaring, lines):
     """Whether the one `mod name;` in these lines names a file of the release.
 
     Rust reference, "Module source filenames": a crate root or `mod.rs` finds its
@@ -145,12 +145,12 @@ def module_in_release(files, targets, declaring, lines):
     names = MODULE.findall("\n".join(lines))
     if len(names) != 1:
         return False
-    beside = declaring.name in ("mod.rs", "lib.rs", "main.rs") or declaring in targets
+    beside = declaring.name == "mod.rs" or declaring in roots
     folder = declaring.parent if beside else declaring.with_suffix("")
     return folder / f"{names[0]}.rs" in files or folder / names[0] / "mod.rs" in files
 
 
-def semgrep(files, targets, work, flags):
+def semgrep(files, targets, roots, work, flags):
     src = work / "rust"
     src.mkdir()
     # A flat scan-only snapshot defeats author ignore files, hidden paths and unsafe filenames.
@@ -181,7 +181,7 @@ def semgrep(files, targets, work, flags):
         name = paths[Path(match["path"]).name]
         if match["check_id"] == "module-file":
             lines = files[name].read_text(errors="replace").splitlines()[match["start"]["line"] - 1:match["end"]["line"]]
-            if module_in_release(files, targets, name, lines):
+            if module_in_release(files, roots, name, lines):
                 continue
         flags[match["check_id"]].append((f"{name}:{match['start']['line']}",
                                         match["extra"]["message"]))
@@ -370,7 +370,9 @@ def scan(source, prior, work, failures, flags, note):
     unread = sorted(target.name if target.is_absolute() else str(target) for target in targets - files.keys())
     if unread:
         raise ScanError("A manifest declares Rust targets the release does not contain: " + ", ".join(unread))
-    semgrep(files, targets, work, flags)
+    # Crate roots: the declared targets and each package's default library and binary.
+    roots = targets | {path.parent / "src" / name for path in manifests for name in ("lib.rs", "main.rs")}
+    semgrep(files, targets, roots, work, flags)
     for path in sorted(scripts):
         flags["Build scripts"].append((f"{path}:1", "Review the code Cargo runs before compiling the mod."))
     for path in sorted(macros):
