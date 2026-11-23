@@ -52,7 +52,7 @@ take down the whole project.
 
 ## Registration pull requests
 
-A registration PR adds the package to `registry/watched.toml` and creates its `project.toml`. For
+A registration PR adds the package to its repository's `registry/repositories/<repository ID>.toml` and creates its `project.toml`. For
 now authors open it by hand, so nothing has checked it before you: confirm that the PR's author
 administers the named repository (or is one of its organisation's owners), that the numeric
 repository ID is that repository's, that the caller workflow and both manifests are on its default

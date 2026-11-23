@@ -1,0 +1,5 @@
+name = "arismoko/additional_lights"
+
+[[package]]
+path = "."
+project = "hpCoCCIB"

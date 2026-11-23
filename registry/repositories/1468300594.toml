@@ -1,0 +1,5 @@
+name = "arismoko/macaws_paths_and_pavings"
+
+[[package]]
+path = "."
+project = "bSETUGA3"

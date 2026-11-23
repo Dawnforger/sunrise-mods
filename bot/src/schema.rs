@@ -186,6 +186,12 @@ impl RepositoryId {
     pub fn get(self) -> u64 {
         self.0.get()
     }
+
+    /// The ID a `registry/repositories/<id>.toml` file is named for, in its one decimal form.
+    pub fn of_file(name: &str) -> Option<Self> {
+        let id = name.strip_suffix(".toml")?.parse().ok().map(Self)?;
+        (format!("{}.toml", id.get()) == name).then_some(id)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -215,15 +221,7 @@ pub enum Kind {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Watched {
-    #[serde(default)]
-    pub repository: Vec<Repository>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Repository {
-    pub id: RepositoryId,
     pub name: RepositoryName,
     pub package: Vec<Package>,
 }

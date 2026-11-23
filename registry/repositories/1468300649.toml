@@ -1,0 +1,5 @@
+name = "arismoko/deepbore-quarry"
+
+[[package]]
+path = "deepbore_quarry"
+project = "ihzPxcaa"

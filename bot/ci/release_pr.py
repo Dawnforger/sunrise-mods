@@ -18,6 +18,7 @@ PROJECT = r"[A-Za-z0-9]{8}"
 VERSION = r"[0-9][0-9A-Za-z.+-]*"
 RELEASE = re.compile(rf"release/(?P<project>{PROJECT})/(?P<version>{VERSION})", re.ASCII)
 ROW = re.compile(rf"registry/projects/(?P<project>{PROJECT})/releases/(?P<version>{VERSION})\.toml", re.ASCII)
+REPOSITORY = re.compile(r"registry/repositories/[1-9][0-9]*\.toml", re.ASCII)
 SHA = re.compile(r"[0-9a-f]{40}", re.ASCII)
 PR = re.compile(r"[1-9][0-9]*", re.ASCII)
 DIGEST = re.compile(r"(?:sha256:)?([0-9a-f]{64})", re.ASCII)
@@ -169,10 +170,12 @@ def install_tree(generated, work, branch):
         shutil.copytree(generated / page, work / page)
         git("add", "--", row, page, cwd=work)
     else:
-        row = Path("registry/watched.toml")
-        require((generated / row).is_file(), "watch rename artifact is missing watched.toml")
-        shutil.copyfile(generated / row, work / row)
-        git("add", "--", row, cwd=work)
+        rows = sorted(p.relative_to(generated) for p in generated.rglob("*") if p.is_file())
+        require(rows and all(REPOSITORY.fullmatch(row.as_posix()) and (work / row).is_file() for row in rows),
+                "watch rename artifact is not a set of registered repository files")
+        for row in rows:
+            shutil.copyfile(generated / row, work / row)
+        git("add", "--", *rows, cwd=work)
 
 
 def open_pr(generated, branch, base, title, body):

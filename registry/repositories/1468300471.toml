@@ -1,0 +1,5 @@
+name = "arismoko/simply_light"
+
+[[package]]
+path = "."
+project = "KP1Fa50Q"

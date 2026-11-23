@@ -110,7 +110,7 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
     let mut registry = load(checkout)?;
     fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let mut summary = String::from("### Registry release watcher\n\n");
-    if registry.watched.repository.is_empty() {
+    if registry.repositories.is_empty() {
         summary.push_str("No repositories are registered.\n");
         return fs::write(out.join("watch.md"), summary).map_err(|e| e.to_string());
     }
@@ -118,11 +118,10 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
     let mut builds = Builds::new(github)?;
     let categories = categories(&registry)?;
     let workflow = workflow(&registry)?.to_owned();
-    let mut renamed = false;
-    for repo in &mut registry.watched.repository {
+    for (&repository, repo) in &mut registry.repositories {
         let live: Result<_, String> = (|| {
-            let live = github.repository(Repo::Registered(repo.id))?;
-            if live.id != repo.id || live.private {
+            let live = github.repository(Repo::Registered(repository))?;
+            if live.id != repository || live.private {
                 return Err("registered repository is no longer public or has the wrong ID".into());
             }
             Ok(live)
@@ -141,9 +140,13 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
                 &format!("renamed to {}", live.name.as_str()),
             );
             repo.name = live.name;
-            renamed = true;
+            let path = out.join("rename/registry/repositories");
+            fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+            let text = toml::to_string_pretty(&*repo).map_err(|e| e.to_string())?;
+            fs::write(path.join(format!("{}.toml", repository.get())), text)
+                .map_err(|e| e.to_string())?;
         }
-        let releases = match github.releases(Repo::Registered(repo.id)) {
+        let releases = match github.releases(Repo::Registered(repository)) {
             Ok(releases) => releases,
             Err(reason) => {
                 note(&mut summary, repo.name.as_str(), &reason);
@@ -228,12 +231,6 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
                 }
             }
         }
-    }
-    if renamed {
-        let path = out.join("rename/registry");
-        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-        let text = toml::to_string_pretty(&registry.watched).map_err(|e| e.to_string())?;
-        fs::write(path.join("watched.toml"), text).map_err(|e| e.to_string())?;
     }
     if summary == "### Registry release watcher\n\n" {
         summary.push_str("No new releases to propose.\n");
@@ -1001,9 +998,11 @@ mod tests {
             )
             .unwrap();
         }
+        fs::create_dir(fixture.join("repositories")).unwrap();
         for file in [
             "categories.toml",
-            "watched.toml",
+            "repositories/123456789.toml",
+            "repositories/987654321.toml",
             "revoked.toml",
             "release-workflow.toml",
         ] {
@@ -1024,16 +1023,15 @@ mod tests {
     }
 
     #[test]
-    fn renames_use_numeric_identity_and_write_only_watched_names() {
+    fn renames_use_numeric_identity_and_rewrite_only_that_repository_file() {
         let out = tempfile::tempdir().unwrap();
         run(Path::new(FIXTURE), out.path(), &Recorded::default()).unwrap();
-        let text = fs::read_to_string(out.path().join("rename/registry/watched.toml")).unwrap();
-        let rows: schema::Watched = toml::from_str(&text).unwrap();
-        assert_eq!(
-            rows.repository[0].name.as_str(),
-            "Example/Wayfinder-Renamed"
-        );
-        assert_eq!(rows.repository[0].id.get(), 123456789);
+        let renamed = out.path().join("rename/registry/repositories");
+        let text = fs::read_to_string(renamed.join("123456789.toml")).unwrap();
+        let row: schema::Repository = toml::from_str(&text).unwrap();
+        assert_eq!(row.name.as_str(), "Example/Wayfinder-Renamed");
+        assert_eq!(row.package.len(), 1);
+        assert_eq!(fs::read_dir(renamed).unwrap().count(), 1);
         assert!(!out.path().join("releases").exists());
     }
 

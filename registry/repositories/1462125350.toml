@@ -1,0 +1,5 @@
+name = "sunrise-org/sunrise-minimap"
+
+[[package]]
+path = "."
+project = "lutYnPB0"

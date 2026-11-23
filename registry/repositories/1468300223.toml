@@ -1,0 +1,5 @@
+name = "arismoko/yungs_better_jungle_temples"
+
+[[package]]
+path = "."
+project = "nhritf02"
