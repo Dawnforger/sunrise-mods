@@ -197,11 +197,11 @@ Observation and publication failures appear in the watch summary.
 
 The read-only job downloads the `.smod`, page tar and both bundles. It checks GitHub's sizes and
 available hashes, then uses `gh attestation verify` to check each artifact against the release
-workflow and the tagged source commit. It checks the **verified certificate** for the registered
-numeric repository ID and exact `release-v<number>` workflow ref, and requires both bundles to
-agree. Native packages must pin a commit that a signed Sunrise build names. When a content-only
-package has no SDK pin, the watcher records the current signed Nightly's exact build, not the
-moving alias. The checker resolves the same exact build when it checks the PR. The existing
+workflow and the same tagged source commit, resolved once. It checks the **verified certificate**
+for the registered numeric repository ID and exact `release-v<number>` workflow ref, and requires
+both bundles to agree. Native packages must pin a commit that a signed Sunrise build names. When a
+content-only package has no SDK pin, the watcher records the current signed Nightly's exact build,
+not the moving alias. The checker resolves the same exact build when it checks the PR. The existing
 registry package download cap is 64 MiB (`sunrise_mod_package::index::MAX_FILE`); page entries use
 Sunrise's manifest and screenshot limits. The write job gets only generated registry files. It
 opens `release/<project>/<version>` and dispatches `release-check.yml` on `main` with the PR number

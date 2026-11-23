@@ -313,8 +313,10 @@ pub fn check(
             ..request
         };
         let previous_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let commit = request.tag_commit().map_err(|error| error.to_string())?;
         let (file, workflow) = asset(
             &request,
+            &commit,
             "smod",
             "package.smod",
             previous_dir.path(),
@@ -376,6 +378,17 @@ struct Request<'a> {
     version: &'a Version,
 }
 
+impl Request<'_> {
+    fn tag_commit(&self) -> Result<String, Observation> {
+        self.github
+            .tag_commit(
+                Repo::Registered(self.entry.project.repository),
+                &self.release.tag_name,
+            )
+            .map_err(Observation::Unknown)
+    }
+}
+
 struct Assets {
     package: Asset,
     page: Asset,
@@ -393,8 +406,11 @@ fn release_assets(
     dir: &Path,
     claim: Option<&Release>,
 ) -> Result<Assets, Observation> {
+    // Both artifacts must come from the same snapshot even if the tag moves mid-check.
+    let commit = request.tag_commit()?;
     let (package, package_ref) = asset(
         request,
+        &commit,
         "smod",
         "package.smod",
         dir,
@@ -402,6 +418,7 @@ fn release_assets(
     )?;
     let (page, page_ref) = asset(
         request,
+        &commit,
         "page.tar",
         "page.tar",
         dir,
@@ -453,6 +470,7 @@ fn download_asset(
 
 fn asset(
     request: &Request<'_>,
+    commit: &str,
     suffix: &str,
     local: &str,
     dir: &Path,
@@ -519,8 +537,8 @@ fn asset(
                             "approved URL is not a GitHub download for this tag and asset".into(),
                         )
                     })?;
-                let old_repo =
-                    RepositoryName::parse(old_repo.into()).map_err(Observation::Ineligible)?;
+                let old_repo = RepositoryName::parse(old_repo.into())
+                    .map_err(|reason| Observation::Ineligible(reason.into()))?;
                 let resolved = request
                     .github
                     .repository(Repo::Named(&old_repo))
@@ -546,10 +564,6 @@ fn asset(
         }
         None => (url, bundle_url),
     };
-    let commit = request
-        .github
-        .tag_commit(Repo::Registered(repo), tag)
-        .map_err(Observation::Unknown)?;
     let verify = |repository_name| {
         request.github.verify_attestation(
             Attestation {
@@ -557,7 +571,7 @@ fn asset(
                 repository_name,
                 workflow_path: request.workflow,
                 tag,
-                commit: &commit,
+                commit,
             },
             &path,
             &attestation,
@@ -569,10 +583,13 @@ fn asset(
     })?;
     Ok((
         Asset {
-            url: HttpsUrl::parse(stored_url.into()).map_err(Observation::Ineligible)?,
+            url: HttpsUrl::parse(stored_url.into())
+                .map_err(|reason| Observation::Ineligible(reason.into()))?,
             size: file.size,
-            sha256: Sha256::parse(sha256).map_err(Observation::Ineligible)?,
-            attestation: HttpsUrl::parse(stored_bundle.into()).map_err(Observation::Ineligible)?,
+            sha256: Sha256::parse(sha256)
+                .map_err(|reason| Observation::Ineligible(reason.into()))?,
+            attestation: HttpsUrl::parse(stored_bundle.into())
+                .map_err(|reason| Observation::Ineligible(reason.into()))?,
         },
         workflow,
     ))
@@ -640,8 +657,10 @@ fn note(summary: &mut String, label: &str, reason: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::RepositoryId;
-    use std::{cell::RefCell, collections::BTreeMap};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::BTreeMap,
+    };
 
     const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/two-ports");
     const RELEASES: &str = include_str!("../tests/fixtures/watcher/releases.json");
@@ -717,6 +736,8 @@ mod tests {
     #[derive(Default)]
     struct Recorded {
         downloads: RefCell<Vec<String>>,
+        tag_lookups: Cell<usize>,
+        verified_commits: RefCell<Vec<String>>,
         inconclusive: bool,
         alias_reassigned: bool,
         alias_broken: bool,
@@ -759,7 +780,9 @@ mod tests {
         fn tag_commit(&self, repo: Repo<'_>, tag: &str) -> Result<String, String> {
             assert!(matches!(repo, Repo::Registered(id) if id.get() == 123456789));
             assert_eq!(tag, "v1.2.0");
-            Ok("a".repeat(40))
+            let count = self.tag_lookups.get();
+            self.tag_lookups.set(count + 1);
+            Ok(if count == 0 { "a" } else { "b" }.repeat(40))
         }
 
         fn download_release(&self, url: &str, dest: &Path, _: u64) -> Result<(), String> {
@@ -784,21 +807,67 @@ mod tests {
             assert_eq!(check.repository_id.get(), 123456789);
             assert_eq!(fs::read(file).unwrap().as_slice(), BODY);
             assert_eq!(fs::read(bundle).unwrap().as_slice(), BUNDLE);
+            self.verified_commits.borrow_mut().push(check.commit.into());
             SignerWorkflowRef::parse(format!("{}@refs/tags/release-v1", schema::RELEASE_WORKFLOW))
-                .map_err(Observation::Ineligible)
+                .map_err(|reason| Observation::Ineligible(reason.into()))
         }
     }
 
     fn live_release(version: &str, published: &str, digest: Option<String>) -> github::Release {
-        let name = format!("wayfinder-{version}.smod");
-        let bundle = format!("{name}.sigstore.json");
-        serde_json::from_value(serde_json::json!({
-            "tag_name":format!("v{version}"), "published_at":published, "draft":false,
-            "assets":[
-                {"name":name,"size":BODY.len(),"digest":digest,"browser_download_url":format!("https://github.com/{CURRENT}/releases/download/v{version}/{name}")},
-                {"name":bundle,"size":BUNDLE.len(),"browser_download_url":format!("https://github.com/{CURRENT}/releases/download/v{version}/{bundle}")}
-            ]
-        })).unwrap()
+        let tag = format!("v{version}");
+        let assets = [("smod", digest), ("page.tar", None)]
+            .into_iter()
+            .flat_map(|(suffix, digest)| {
+                let name = format!("wayfinder-{version}.{suffix}");
+                let url = format!("https://github.com/{CURRENT}/releases/download/{tag}/{name}");
+                let bundle_name = format!("{name}.sigstore.json");
+                let bundle_url = format!("{url}.sigstore.json");
+                [
+                    github::Asset {
+                        name,
+                        size: BODY.len() as u64,
+                        digest,
+                        browser_download_url: url,
+                    },
+                    github::Asset {
+                        name: bundle_name,
+                        size: BUNDLE.len() as u64,
+                        digest: None,
+                        browser_download_url: bundle_url,
+                    },
+                ]
+            })
+            .collect();
+        github::Release {
+            tag_name: tag,
+            name: None,
+            published_at: Some(published.into()),
+            draft: false,
+            assets,
+        }
+    }
+
+    #[test]
+    fn both_attestations_use_the_same_tag_commit_even_if_a_second_lookup_would_change_it() {
+        let registry = load(Path::new(FIXTURE)).unwrap();
+        let entry = &registry.projects[&ProjectId::parse("Ab3dE9xQ".into()).unwrap()];
+        let github = Recorded::default();
+        let work = tempfile::tempdir().unwrap();
+        let release = live_release("1.2.0", "2026-11-23T13:00:00Z", None);
+        let request = Request {
+            github: &github,
+            entry,
+            repository: &RepositoryName::parse(CURRENT.into()).unwrap(),
+            workflow: schema::RELEASE_WORKFLOW,
+            release: &release,
+            version: &Version::new(1, 2, 0),
+        };
+        release_assets(&request, work.path(), None).unwrap();
+        assert_eq!(github.tag_lookups.get(), 1);
+        assert_eq!(
+            github.verified_commits.borrow().as_slice(),
+            ["a".repeat(40), "a".repeat(40)]
+        );
     }
 
     #[test]
@@ -821,6 +890,7 @@ mod tests {
                 release: &release,
                 version: &version,
             };
+            let commit = request.tag_commit().unwrap();
             for index in [0, 1] {
                 let url = |i: usize| {
                     HttpsUrl::parse(if index == i {
@@ -839,7 +909,7 @@ mod tests {
                     sha256: Sha256::parse(hash.clone()).unwrap(),
                 };
                 assert!(
-                    matches!(asset(&request, "smod", "test.smod", work.path(), Some(Claim::Proposed(&claim))), Err(Observation::Ineligible(reason)) if reason.contains("does not match the live release"))
+                    matches!(asset(&request, &commit, "smod", "test.smod", work.path(), Some(Claim::Proposed(&claim))), Err(Observation::Ineligible(reason)) if reason.contains("does not match the live release"))
                 );
             }
             let claim = Asset {
@@ -850,7 +920,7 @@ mod tests {
                 sha256: Sha256::parse("a".repeat(64)).unwrap(),
             };
             assert!(
-                matches!(asset(&request, "smod", "test.smod", work.path(), Some(Claim::Proposed(&claim))), Err(Observation::Ineligible(reason)) if reason.contains("hash differs from the approved/proposed release row"))
+                matches!(asset(&request, &commit, "smod", "test.smod", work.path(), Some(Claim::Proposed(&claim))), Err(Observation::Ineligible(reason)) if reason.contains("hash differs from the approved/proposed release row"))
             );
         }
         assert!(
@@ -897,8 +967,10 @@ mod tests {
                 release: &release,
                 version: &version,
             };
+            let commit = request.tag_commit().unwrap();
             let result = asset(
                 &request,
+                &commit,
                 "smod",
                 "test.smod",
                 work.path(),

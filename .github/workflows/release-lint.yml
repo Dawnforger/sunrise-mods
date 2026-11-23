@@ -32,7 +32,7 @@ jobs:
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           # GitHub supports job-level cache-mode; actionlint 1.7.12 predates the key.
-          "$RUNNER_TEMP/actionlint" -ignore 'unexpected key "cache-mode" for job\.' \
+          "$RUNNER_TEMP/actionlint" -ignore '^unexpected key "cache-mode" for "job" section\.' \
             .github/workflows/release*.yml .github/workflows/watch.yml .github/workflows/scan*.yml
       - name: Run zizmor 1.22.0
         run: |
