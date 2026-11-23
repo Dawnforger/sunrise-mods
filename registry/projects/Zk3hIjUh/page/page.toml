@@ -1,0 +1,38 @@
+name = "Falling Trees"
+summary = "Chop the bottom log of a tree with an axe and the whole tree comes down, logs, leaves and all."
+description = """
+Chop the bottom log of a tree with an axe and the whole tree comes down, logs, leaves and all.
+
+A port of [Panda's Falling Trees](https://github.com/PandaMods-Dev/Pandas-Falling-Trees) by The Panda Oliver to [Sunrise](https://playsunrise.net) (Minecraft Java 26.3), written in Rust on Sunrise's mod API.
+
+What it does:
+
+- Breaking a stem fells its tree. Four kinds: ordinary trees (stems found by the log tag, leaves by the leaves tag and their distance, plus vines, cocoa and bee nests), cactus and bamboo (from the chopped block up), chorus plants with their flowers, and giant mushrooms with their caps.
+- The tree is a falling entity: it tips away from you about its far edge, bounces, and after its lifetime drops the loot at the stump. The loot is each block's own, rolled with your tool (Silk Touch and Fortune count).
+- Fall and landing sounds, the fall, bounce and lifetime lengths, the leaf radius, the stem limit, persistent leaves and the volumes are settings.
+- The tool wears one point per stem and you tire as if you had chopped each one (each can be cut down to one block's worth in settings). Unbreaking applies.
+- Sneak to chop a single block (settings invert or drop this). Each kind can be switched off or made to need an axe.
+- Bigger trees take longer to chop: the more blocks, the slower the first one breaks, up to a cap, as the original's dynamic mining speed (settings).
+- Works in survival and creative.
+
+Differences from the original:
+
+- Options are Sunrise mod settings, and the block and tool lists are text files in `config/fallingtrees/` (`logs.txt`, `leaves.txt`, `vertical_blocks.txt`, `tools.txt`: ids with `*`, `#tags`, and `!id` to refuse one). The tool list is by item name only: a host can't read an item's tags, so `#minecraft:axes` becomes `*_axe`.
+- "One block's tiredness only" charges one block's exhaustion (0.005); the original's flat charge for this option is far larger, which looks like a slip in it.
+- The tree's blocks are drawn as plain block models rotated about the stump; the original draws its own baked model.
+"""
+authors = [
+    "The Panda Oliver",
+    "arismoko",
+]
+license = "GPL-3.0-only"
+homepage = "https://github.com/arismoko/horizon-ports"
+icon = "icon.png"
+categories = [
+    "game-mechanics",
+    "utility",
+]
+
+[[screenshots]]
+path = "world.png"
+caption = "A tree coming down after its bottom log is chopped."
