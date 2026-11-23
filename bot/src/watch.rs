@@ -210,6 +210,42 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
     fs::write(out.join("watch.md"), summary).map_err(|e| e.to_string())
 }
 
+/// The first required dependency no other project on main can supply: the build would only fail
+/// on it later, with a compiler log instead of a reason.
+fn unsupplied(registry: &Registry, id: &ProjectId, row: &Release) -> Option<String> {
+    let revoked = |project: &ProjectId, release: &Release| {
+        registry.revoked.iter().any(|r| {
+            r.project == *project
+                && r.sha256
+                    .as_ref()
+                    .is_none_or(|hash| *hash == release.file.sha256)
+        })
+    };
+    row.dependencies
+        .iter()
+        .filter(|dependency| dependency.required)
+        .find(|dependency| {
+            !registry.projects.iter().any(|(provider, entry)| {
+                provider != id
+                    && entry.project.mod_id == dependency.mod_id
+                    && dependency
+                        .project
+                        .as_ref()
+                        .is_none_or(|pinned| pinned == provider)
+                    && entry.releases.iter().any(|(version, release)| {
+                        dependency.version.matches(version) && !revoked(provider, release)
+                    })
+            })
+        })
+        .map(|dependency| {
+            format!(
+                "needs {} {}, which has no such release in the registry: release the library first",
+                dependency.mod_id.as_str(),
+                dependency.version
+            )
+        })
+}
+
 fn has_open_release(open: &BTreeSet<String>, id: &ProjectId) -> bool {
     let prefix = format!("release/{}/", id.as_str());
     open.range(prefix.clone()..)
@@ -267,6 +303,9 @@ pub fn check(
     )?;
     if row != claim {
         return Err("release row does not match the attested assets and published metadata".into());
+    }
+    if let Some(missing) = unsupplied(&registry, id, &row) {
+        return Err(missing);
     }
     write_release(&row, &payload, &out.join("expected").join(project_path(id)))?;
     release_payload::source(
@@ -673,6 +712,48 @@ mod tests {
         let initial = candidates(folder, &releases, None);
         assert_eq!(initial.len(), 1);
         assert_eq!(initial[0].release.tag_name, "wayfinder/v2.0.0-beta.1");
+    }
+
+    #[test]
+    fn a_required_dependency_needs_another_projects_unrevoked_release_in_range() {
+        let mut registry = load(Path::new(FIXTURE)).unwrap();
+        let dependent = ProjectId::parse("Zz91kLmN".into()).unwrap();
+        let library = ProjectId::parse("Ab3dE9xQ".into()).unwrap();
+        let mut row = registry
+            .projects
+            .get_mut(&dependent)
+            .unwrap()
+            .releases
+            .pop_first()
+            .unwrap()
+            .1;
+        // Optional: nothing has to supply it.
+        row.dependencies[0].version = "=9.9.9".parse().unwrap();
+        assert_eq!(unsupplied(&registry, &dependent, &row), None);
+        row.dependencies[0].required = true;
+        let refusal = "needs wayfinder =9.9.9, which has no such release in the registry: release the library first";
+        assert_eq!(
+            unsupplied(&registry, &dependent, &row).as_deref(),
+            Some(refusal)
+        );
+        row.dependencies[0].version = "^1.2".parse().unwrap();
+        assert_eq!(unsupplied(&registry, &dependent, &row), None);
+        // The dependent shares the in-game ID but cannot supply itself.
+        assert!(unsupplied(&registry, &library, &row).is_some());
+        // A pin to another provider, or a takedown of the only matching release, leaves nothing.
+        row.dependencies[0].project = Some(dependent.clone());
+        assert!(unsupplied(&registry, &dependent, &row).is_some());
+        row.dependencies[0].project = None;
+        let hash = registry.projects[&library]
+            .releases
+            .values()
+            .next()
+            .unwrap()
+            .file
+            .sha256
+            .clone();
+        registry.revoked[1].sha256 = Some(hash);
+        assert!(unsupplied(&registry, &dependent, &row).is_some());
     }
 
     #[test]

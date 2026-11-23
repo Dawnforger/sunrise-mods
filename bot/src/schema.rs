@@ -1,4 +1,4 @@
-use semver::Version;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use sunrise_mod_package::index::stable_tag;
 use sunrise_release_sign::{Channel, is_build};
@@ -321,6 +321,8 @@ pub struct Asset {
 pub struct Dependency {
     #[serde(rename = "mod")]
     pub mod_id: ModId,
+    /// The manifest's requirement on the provider's version.
+    pub version: VersionReq,
     pub project: Option<ProjectId>,
     pub required: bool,
 }

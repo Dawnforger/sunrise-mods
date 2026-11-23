@@ -18,4 +18,5 @@ attestation = "https://github.com/example/wayfinder/releases/download/v1.2.0/way
 
 [[dependencies]]
 mod = "map_markers"
+version = ">=0.3, <2"
 required = false
