@@ -267,8 +267,10 @@ pub fn source(smod: &Path, dest: &Path, native: bool) -> Result<(), String> {
 /// One key for every spelling a case-insensitive or normalization-insensitive file system (APFS,
 /// NTFS) would open as the same path, so each host builds the tree the scanner read.
 fn alias_key(path: &str) -> String {
-    let upper = path.nfd().collect::<String>().to_uppercase();
-    upper.nfd().collect()
+    // Unicode's canonical caseless form (definition D145): NFD, full case folding, NFD again.
+    // Upper- or lowercasing alone keeps some pairs apart, such as U+03F4 and U+03B8.
+    let folded = caseless::default_case_fold_str(&path.nfd().collect::<String>());
+    folded.nfd().collect()
 }
 
 fn portable_path(path: &str) -> bool {
@@ -381,6 +383,9 @@ mod tests {
             ],
             ["Lib/a.rs".to_string(), "lib/b.rs".to_string()],
             ["src/mod".to_string(), "src/MOD/a.rs".to_string()],
+            // Case pairs that neither uppercasing nor lowercasing alone brings together.
+            ["src/\u{3f4}.rs".to_string(), "src/\u{3b8}.rs".to_string()],
+            ["stra\u{df}e/a.rs".to_string(), "STRASSE/b.rs".to_string()],
         ] {
             let names: Vec<&str> = names.iter().map(String::as_str).collect();
             assert!(native_source(&names).is_err(), "accepted {names:?}");
