@@ -23,6 +23,22 @@ It is not live yet; the current registry and the instructions below are unchange
    ships source and `Cargo.lock`, not prebuilt binaries; the launcher builds it on the player's computer.
    The registry bot checks the release and opens the release PR for you.
 
+Things to get right, since each one otherwise costs a round trip:
+
+- **Several mods, one pull request.** Every registration edits `registry/watched.toml`, so separate
+  pull requests conflict with each other. Register all your repositories and packages in one.
+- **The repository ID is your repository's own.** A fork has a different ID from the repository it
+  was forked from. The watcher follows the ID, not the name.
+- **The slug and the project ID are new.** The check refuses a slug or project ID another project has.
+- **Actions are on.** GitHub turns Actions off in a new fork until its owner enables them, and the
+  release workflow runs in your repository. The repository must be public.
+- **The release tag is new.** A fork starts with every tag of the repository it was forked from.
+  Release a version whose tag (`v<version>`, or `<mod>/v<version>` in a subfolder) does not exist yet.
+- **The first release proposed is your newest one.** For a project with no approved release the
+  watcher looks only at the newest published release. It looks every 30 minutes.
+- **One release pull request per project at a time.** A later release is proposed once the open one
+  is merged or closed.
+
 Discover lists only signed, reviewed releases on Stable, Nightly and Dev. Nightly and Dev releases
 name an exact build, not a branch. Unreviewed mods stay out of Discover; the launcher offers them
 only through the manual **Add from source** action, with a warning.
