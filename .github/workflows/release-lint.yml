@@ -2,7 +2,7 @@ name: Lint the mod release workflow
 
 on:
   pull_request:
-    paths: ['.github/workflows/release*.yml', '.github/workflows/watch.yml', '.github/workflows/scan*.yml', '.github/actions/**', 'bot/ci/cache_guard.py', 'bot/ci/test_cache_guard.py']
+    paths: ['.github/workflows/release*.yml', '.github/workflows/watch.yml', '.github/workflows/timer.yml', '.github/workflows/scan*.yml', '.github/actions/**', 'bot/ci/cache_guard.py', 'bot/ci/test_cache_guard.py']
 
 permissions: {}
 
@@ -33,7 +33,7 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           # GitHub supports job-level cache-mode; actionlint 1.7.12 predates the key.
           "$RUNNER_TEMP/actionlint" -ignore '^unexpected key "cache-mode" for "job" section\.' \
-            .github/workflows/release*.yml .github/workflows/watch.yml .github/workflows/scan*.yml
+            .github/workflows/release*.yml .github/workflows/watch.yml .github/workflows/timer.yml .github/workflows/scan*.yml
       - name: Run zizmor 1.22.0
         run: |
           archive="$RUNNER_TEMP/zizmor-x86_64-unknown-linux-gnu.tar.gz"
@@ -41,4 +41,4 @@ jobs:
             https://github.com/zizmorcore/zizmor/releases/download/v1.22.0/zizmor-x86_64-unknown-linux-gnu.tar.gz
           echo "f7633bbf155cddebd3fdfdcbfaa777a4e89e4da1bc719b08dfa9ae50e5daae46  $archive" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP" ./zizmor
-          "$RUNNER_TEMP/zizmor" --offline .github/workflows/release*.yml .github/workflows/watch.yml
+          "$RUNNER_TEMP/zizmor" --offline .github/workflows/release*.yml .github/workflows/watch.yml .github/workflows/timer.yml

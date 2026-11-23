@@ -1,0 +1,40 @@
+name: registry timer
+# GitHub delivers almost none of this organization's scheduled events, so the registry's two half-hourly
+# jobs (the release watcher and the offered-builds check) are started from here instead. Each run starts
+# both, waits half an hour and starts the next run of this workflow. A push to main or a schedule event
+# that does arrive starts the chain again if it has stopped; the concurrency group keeps it to one chain,
+# because a waiting run is replaced by a newer one. Cancelling a run stops the chain.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: registry-timer
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Start the release watcher and the offered-builds check
+        run: |
+          gh workflow run watch.yml --repo "$GITHUB_REPOSITORY" --ref main
+          gh workflow run offered-builds.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Wait half an hour
+        if: ${{ !cancelled() }}
+        run: sleep 1800
+      - name: Start the next run
+        if: ${{ !cancelled() }}
+        run: gh workflow run timer.yml --repo "$GITHUB_REPOSITORY" --ref main
