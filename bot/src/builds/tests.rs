@@ -5,6 +5,8 @@ use super::*;
 struct Recorded {
     list: Value,
     tags: BTreeMap<String, Commit>,
+    /// Build IDs whose signed descriptor names this commit instead of the metadata's.
+    signed: BTreeMap<String, String>,
 }
 
 impl Releases for Recorded {
@@ -14,6 +16,22 @@ impl Releases for Recorded {
 
     fn stable_commits(&self) -> Result<BTreeMap<String, Commit>, String> {
         Ok(self.tags.clone())
+    }
+
+    fn signed_commit(
+        &self,
+        release: &GithubRelease,
+        build: &str,
+        _channel: Option<Channel>,
+    ) -> Result<String, String> {
+        if let Some(commit) = self.signed.get(build) {
+            return Ok(commit.clone());
+        }
+        // By default the signed descriptor agrees with the release's metadata.
+        Ok(match self.tags.get(&release.tag_name) {
+            Some(commit) => commit.as_str().to_owned(),
+            None => release.target_commitish.clone(),
+        })
     }
 }
 
@@ -40,16 +58,17 @@ fn offered_builds_keep_every_stable_and_ten_newest_with_surfaces_per_channel() {
                 format!("nightly-{date}")
             };
             rows.push(json!({"tag_name":tag, "target_commitish":commit, "name":format!("{title} {date} · {short}"),
-                "published_at":format!("{date}T00:00:00Z"), "draft":i == 13, "prerelease":true, "assets":[{"name":"sdk.json"}]}));
+                "published_at":format!("{date}T00:00:00Z"), "draft":i == 13, "prerelease":true, "assets":[{"name":"sdk.json","size":1}]}));
             rows.push(json!({"tag_name":format!("sdk-{commit}"), "target_commitish":commit, "name":"Mod SDK",
                 "published_at":format!("{date}T00:00:00Z"), "draft":false, "prerelease":true,
-                "assets":[{"name":if i == 14 { "sdk.json" } else { "surface.json" }}]}));
+                "assets":[{"name":if i == 14 { "sdk.json" } else { "surface.json" }, "size":1}]}));
         }
     }
     // Deliberately not in newest-first order, like a GitHub list sorted by creation time.
     let selected = select(&Recorded {
         list: json!(rows),
         tags,
+        signed: BTreeMap::new(),
     })
     .unwrap();
     for (channel, offset) in [("nightly", 0), ("dev", 100)] {
@@ -70,4 +89,39 @@ fn offered_builds_keep_every_stable_and_ten_newest_with_surfaces_per_channel() {
             .count(),
         14
     );
+}
+
+#[test]
+fn build_whose_signed_descriptor_names_another_commit_is_refused() {
+    // Both commits have a published SDK with a surface; only the game release's own signed
+    // descriptor says which one the build is.
+    let made_from = format!("{:040x}", 1);
+    let moved_to = format!("{:040x}", 2);
+    let short = &moved_to[..7];
+    let sdk = |commit: &str| {
+        json!({"tag_name":format!("sdk-{commit}"), "target_commitish":commit, "name":"Mod SDK",
+            "published_at":"2026-11-01T00:00:00Z", "draft":false, "prerelease":true,
+            "assets":[{"name":"surface.json","size":1}]})
+    };
+    let stable = json!({"tag_name":"26.3-0.1.0", "target_commitish":"release/26.3", "name":"Stable",
+        "published_at":"2026-11-23T00:00:00Z", "draft":false, "prerelease":false, "assets":[]});
+    let dev = json!({"tag_name":format!("dev-2026-11-02-{short}"), "target_commitish":moved_to,
+        "name":format!("Dev 2026-11-02 · {short}"), "published_at":"2026-11-02T00:00:00Z",
+        "draft":false, "prerelease":true, "assets":[]});
+    for (release, id) in [
+        (stable, "26.3-0.1.0".to_owned()),
+        (dev, format!("dev-2026-11-02-{short}")),
+    ] {
+        let source = |signed: &str| Recorded {
+            list: json!([release, sdk(&made_from), sdk(&moved_to)]),
+            tags: BTreeMap::from([(
+                "26.3-0.1.0".to_owned(),
+                Commit::parse(moved_to.clone()).unwrap(),
+            )]),
+            signed: BTreeMap::from([(id.clone(), signed.to_owned())]),
+        };
+        assert_eq!(select(&source(&moved_to)).unwrap().len(), 1);
+        let error = select(&source(&made_from)).unwrap_err();
+        assert!(error.contains("names another commit"), "{error}");
+    }
 }

@@ -11,8 +11,8 @@ use sunrise_release_sign::{Channel, build_title_version, is_build, nightly_date}
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
-    command_output,
-    schema::{BuildName, Commit},
+    command_output, game_build,
+    schema::{BuildName, Commit, RepositoryName},
 };
 
 pub const SUNRISE: &str = "sunrise-org/sunrise";
@@ -41,11 +41,19 @@ struct GithubRelease {
 #[derive(Deserialize)]
 struct GithubAsset {
     name: String,
+    size: u64,
 }
 
 trait Releases {
     fn releases(&self) -> Result<Vec<GithubRelease>, String>;
     fn stable_commits(&self) -> Result<BTreeMap<String, Commit>, String>;
+    /// The commit named by the game release's own signed `sdk.json`, verified under `build`.
+    fn signed_commit(
+        &self,
+        release: &GithubRelease,
+        build: &str,
+        channel: Option<Channel>,
+    ) -> Result<String, String>;
 }
 
 struct Github;
@@ -62,6 +70,24 @@ impl Releases for Github {
         let pages: Vec<Vec<GithubRelease>> = serde_json::from_slice(&command_output(&mut gh)?)
             .map_err(|e| format!("GitHub release list: {e}"))?;
         Ok(pages.into_iter().flatten().collect())
+    }
+
+    fn signed_commit(
+        &self,
+        release: &GithubRelease,
+        build: &str,
+        channel: Option<Channel>,
+    ) -> Result<String, String> {
+        let size = |name: &str| {
+            let mut rows = release.assets.iter().filter(|row| row.name == name);
+            match (rows.next(), rows.next()) {
+                (Some(row), None) => Ok(row.size),
+                _ => Err(format!("expected exactly one {name} asset")),
+            }
+        };
+        let repository = RepositoryName::parse(SUNRISE.to_owned())?;
+        let sdk = game_build::signed_sdk(&release.tag_name, &size, &repository, build, channel)?;
+        Ok(sdk.build.commit)
     }
 
     fn stable_commits(&self) -> Result<BTreeMap<String, Commit>, String> {
@@ -115,10 +141,14 @@ fn select(source: &impl Releases) -> Result<Vec<Build>, String> {
                 .as_ref()
                 .and_then(|tags| tags.get(tag))
                 .ok_or_else(|| format!("stable release {tag} has no Git tag"))?;
-            stable.push(Build {
-                id: BuildName::parse(tag.clone())?,
-                commit: commit.clone(),
-            });
+            stable.push((
+                Build {
+                    id: BuildName::parse(tag.clone())?,
+                    commit: commit.clone(),
+                },
+                release,
+                None,
+            ));
             continue;
         }
         let (channel, list) = if tag == "nightly"
@@ -160,24 +190,43 @@ fn select(source: &impl Releases) -> Result<Vec<Build>, String> {
         let date = OffsetDateTime::parse(date, &Rfc3339).map_err(|e| e.to_string())?;
         list.push((
             date,
-            Build {
-                id: BuildName::parse(id)?,
-                commit,
-            },
+            (
+                Build {
+                    id: BuildName::parse(id)?,
+                    commit,
+                },
+                release,
+                Some(channel),
+            ),
         ));
     }
     for list in [&mut nightly, &mut dev] {
-        list.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+        list.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.0.id.cmp(&b.1.0.id)));
         let mut seen = BTreeSet::new();
         stable.extend(
             list.drain(..)
-                .filter_map(|(_, build)| seen.insert(build.id.clone()).then_some(build))
+                .filter_map(|(_, row)| seen.insert(row.0.id.clone()).then_some(row))
                 .take(ROLLING_BUILDS),
         );
     }
-    stable.sort_unstable_by(|a, b| a.id.cmp(&b.id));
-    validate(&stable)?;
-    Ok(stable)
+    // A tag, target commit or title is only where to look. What ties a build ID to its commit is
+    // the game release's own signature over the `sdk.json` that names the commit.
+    let mut builds = Vec::new();
+    for (build, release, channel) in stable {
+        let id = build.id.as_str();
+        let signed = source
+            .signed_commit(release, id, channel)
+            .map_err(|e| format!("build {id}: {e}"))?;
+        if signed != build.commit.as_str() {
+            return Err(format!(
+                "build {id}: the release's signed SDK descriptor names another commit"
+            ));
+        }
+        builds.push(build);
+    }
+    builds.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+    validate(&builds)?;
+    Ok(builds)
 }
 
 pub fn discover(out: &Path) -> Result<(), String> {
