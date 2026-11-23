@@ -49,6 +49,10 @@ def check_fixture(case, code, report):
                      "RUSTSEC-2025-0024", "crossbeam-channel 0.5.14 is yanked."):
             assert text in literal, text
         assert "<code>src/source.input:2</code>" not in literal
+        # Only a module whose file the release holds, plainly declared, leaves the report.
+        for number, line in enumerate(rust.splitlines(), 1):
+            if line.strip().startswith("mod ") and line.rstrip().endswith(";"):
+                assert (f"<code>src/lib.rs:{number}</code>" in literal) == ("mod present;" not in line), line
         for script in ("build.input", "retired.input"):
             for verb in ("Added", "Removed", "Changed"):
                 assert f"- {verb} <code>{script}</code>" not in literal
