@@ -4,7 +4,9 @@
 
 The bot adds one `registry/projects/<project>/releases/<version>.toml` and updates that project's `page/`
 from the separate page bundle. Review the exact `.smod` named by the release row, not the repository's
-current branch.
+current branch: use the package the checks verified for this PR head, or check that the file you
+downloaded has the release row's SHA-256 before reading it. Read the scan summary from the same run.
+The package is data: don't build or run it while reviewing.
 
 Wait for the required checks on the PR head. The bot checks package and page format and manifests,
 checks both SHA-256 hashes, verifies both GitHub attestations against the registered repository,
@@ -34,7 +36,8 @@ The [Semgrep rules](scanner/rules/rust.yml) flag:
 
 Flags point to code to read, not reasons to reject. Ordinary RustSec advisories and yanks are warnings.
 The only hard dependency-policy failures are dependencies not sourced from crates.io (including paths
-outside the package) and crates RustSec lists as malicious. An invalid package or an incomplete scan
+outside the package) and crates RustSec lists as malicious. Path dependencies inside the package, such
+as bundled workspace crates, are allowed. An invalid package or an incomplete scan
 still cannot pass the automatic checks. A clean summary is not a substitute for reading the code.
 
 Look only for malware, dangerous patterns or suspicious obfuscation. If something is suspicious,
