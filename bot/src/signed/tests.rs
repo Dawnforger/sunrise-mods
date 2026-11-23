@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/signed-index");
 

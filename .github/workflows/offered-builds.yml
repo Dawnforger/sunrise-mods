@@ -26,11 +26,9 @@ jobs:
             echo 'Registry v2 is not live until its public key is configured.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends minisign
           cargo build --locked --manifest-path bot/Cargo.toml --target-dir target --release
           target/release/registry-bot builds --out offered-builds.json
-          python3 -I .github/registry-v2/live.py --out v2-previous
+          python3 -I .github/registry-v2/live.py --bot target/release/registry-bot --out v2-previous
           if [[ ! -f v2-previous/index.json ]]; then
             publish=true
           else

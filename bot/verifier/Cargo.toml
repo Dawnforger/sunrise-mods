@@ -1,0 +1,14 @@
+[package]
+name = "registry-index-verifier"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autobins = false
+
+# Independent of the index generator so its build failures cannot break recovery.
+[[bin]]
+name = "registry-bot"
+path = "src/main.rs"
+
+[dependencies]
+minisign-verify = "0.3"

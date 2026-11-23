@@ -161,3 +161,100 @@ fn package_download_checks_hash_before_reading_the_archive() {
         .unwrap();
     assert!(error.contains("SHA-256"), "{error}");
 }
+
+#[test]
+fn legacy_missing_surface_record_is_omitted_and_retried() {
+    use std::cell::Cell;
+
+    struct PackageDownload<'a> {
+        body: &'a [u8],
+        requests: &'a Cell<usize>,
+    }
+    impl Download for PackageDownload<'_> {
+        fn get(&self, url: &str, file: &Path, _limit: u64) -> Result<(), String> {
+            assert!(url.ends_with(".smod"), "unexpected SDK download: {url}");
+            self.requests.set(self.requests.get() + 1);
+            fs::write(file, self.body).map_err(|e| e.to_string())
+        }
+    }
+
+    let uses = include_bytes!("../../tests/fixtures/deferred-fit/uses.json");
+    let table = UsesTable::read(uses).unwrap();
+    let surface = || {
+        Surface::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        )
+    };
+    let report = table.fits(table.entries.iter(), &surface());
+    assert!(matches!(report.verdict, SurfaceFit::Fits));
+    assert!(report.deferred.is_some());
+    let pin = table.made_for;
+    let manifest = format!(
+        "id='wayfinder'\nname='Wayfinder'\nversion='1.2.0'\n[native]\ngame='26.3'\nsunrise='{pin}'\n"
+    );
+    let body = Package::write_files(
+        &manifest,
+        &[
+            ("Cargo.toml", b"[package]\nname='wayfinder'\n"),
+            ("src/lib.rs", b"pub fn read_map() {}\n"),
+            (USES_FILE, uses),
+        ],
+    )
+    .unwrap();
+    let mut registry = registry::load(fixture()).unwrap();
+    registry.projects.retain(|id, _| id.as_str() == "Ab3dE9xQ");
+    let release = registry
+        .projects
+        .values_mut()
+        .next()
+        .unwrap()
+        .releases
+        .values_mut()
+        .next()
+        .unwrap();
+    let hash = Sha256::parse(sha256_hex(&body)).unwrap();
+    release.file.size = body.len() as u64;
+    release.file.sha256 = hash.clone();
+    let builds = builds::read(&fixture().join("generated-fit/builds.json")).unwrap();
+    let build = &builds[0];
+    let target = scratch();
+    let requests = Cell::new(0);
+    let mut cells = Cells::new();
+    for attempt in 1..=2 {
+        let mut tool = Tool {
+            root: target.path(),
+            downloads: PackageDownload {
+                body: &body,
+                requests: &requests,
+            },
+            packages: BTreeMap::new(),
+            sdks: BTreeMap::from([(
+                build.commit.clone(),
+                Ok(Rc::new(Sdk {
+                    content_api: Manifest::parse(&manifest).unwrap().api,
+                    game: "26.3".into(),
+                    surface_bytes: vec![],
+                    surface: Ok(surface()),
+                })),
+            )]),
+        };
+        let output = target.path().join(format!("attempt-{attempt}"));
+        write_rows(&registry, from_ref(build), cells, &mut tool, &output).unwrap();
+        let generated = generated(&output, "Ab3dE9xQ");
+        let row = &generated.release[0];
+        assert!(row.fits.is_empty() && row.does_not_fit.is_empty());
+        assert_eq!(requests.get(), attempt);
+        let index = serde_json::json!({"schema":2,"serial":41,"builds":[build], "projects":[
+            {"releases":[{"file":{"sha256":hash}, "fits":row.fits, "does_not_fit":row.does_not_fit}]}
+        ]});
+        cells = cache(serde_json::from_value(index).unwrap()).unwrap();
+        assert!(cells.is_empty());
+    }
+}

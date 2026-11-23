@@ -3,6 +3,7 @@ mod fit;
 mod game_build;
 mod github;
 mod index;
+mod index_signature;
 mod registry;
 mod release_payload;
 mod schema;

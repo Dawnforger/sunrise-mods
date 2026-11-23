@@ -113,9 +113,11 @@ means the comparison could not be made and will not be reused on the next publis
 Offered builds are every published `26.3-<semver>` stable release and up to the ten newest builds
 with a published SDK surface from each of Nightly and Dev. Releases identify Nightlies by their
 exact build IDs rather than by the rolling GitHub tag. The fit process verifies the package's size
-and SHA-256 and the SDK's signed metadata and surface. It uses Sunrise's fit tool for native
-cross-build compatibility and does not build or run packages. Known verdicts are reused by
-package SHA-256 and exact build ID and commit, only from the previously published signed index.
+and SHA-256 and the SDK's signed metadata and surface. It uses Sunrise's shared surface library
+for native API comparisons and does not build or run packages. A deferred comparison, an unavailable
+comparison, or a cross-build comparison requiring game-code evidence is left unknown. Definitive
+verdicts are reused by package SHA-256 and exact build ID and commit, only from the previously
+published signed index.
 
 ### `registry/revoked.toml`
 
@@ -142,10 +144,9 @@ The top-level object contains:
 | Field | Meaning |
 | --- | --- |
 | `schema` | Integer `2`. |
-| `serial` | Opaque unsigned 64-bit sequence number. The publisher refuses to publish it unless it is greater than the previous live serial. |
+| `serial` | Opaque unsigned 64-bit sequence number. A new index must exceed the live serial. Carrying the live index over keeps its exact bytes and serial. |
 | `generated` | UTC RFC 3339 timestamp. Informational only; it does not expire the index. |
 | `builds` | Array of offered `{ id, commit }` pairs. `commit` is the full SDK commit SHA. |
-| `image_sha256` | Map from each listed encoded image path to its lowercase SHA-256. It lets the publisher restore exactly the previously served images. |
 | `categories` | Array of `{ id, icon, kinds }` rows, as above. |
 | `projects` | Projects with at least one release. |
 | `revoked` | Takedown rows as above. A `null` `sha256` takes down the whole project. |
@@ -154,8 +155,10 @@ Each project carries `id`, `slug`, `mod`, `kind`, `owners`, and `workflow` from 
 Its `repository` object has `id`, `name`, and `path`. `name`, `summary`, `description`, `authors`,
 `license`, `homepage`, `issues`, `source`, `categories`, `icon`, and `screenshots` come from the
 resolved page. Missing links are `null`; absent categories are `[]`. Each screenshot is
-`{ path, caption }`. Resolve image paths relative to the directory of `index.json`. They start with
-`pages/<project>/`; path components are URL-encoded where necessary.
+`{ path, caption }`. Resolve image paths relative to the directory of `index.json`. They have the
+form `pages/<project>/<sha256>.png` or `pages/<project>/<sha256>.jpg`: the digest is the SHA-256 of
+the exact served bytes, in lowercase hexadecimal, and the extension is from the image format.
+The author's original filename is not published.
 
 Each project's `releases` array contains rows with `version`, `published`, `sunrise`, `workflow`,
 `fits`, `file`, and `dependencies`. The release's `workflow` is an exact signer ref, not the project's
@@ -183,6 +186,7 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
    that release's exact `workflow` ref. On install the launcher does this for the `.smod`. Remember
    the registered repository and workflow path per project; use the approved ref for each release.
    Verifying the catalogue is not a substitute for verifying the package.
+8. Verify each icon and screenshot against the SHA-256 in its filename before displaying it.
 
 ## Local checks and example
 
@@ -200,12 +204,16 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
   does not sign or deploy anything.
 - `registry-bot verify-index <index> <sig> --key <pub>` checks the exact bytes and the index schema.
 
-The publish workflow uses the current UTC epoch second as the next serial. It signs only on
-`main`, then overlays the verified v2 index and images on the regular Pages artifact. If that
-fails, the workflow keeps the last signed v2 files, deploys the legacy site, and reports failure.
-If the live v2 files cannot be retrieved and verified, it refuses to replace the site rather than
-erasing the last catalogue. A separate scheduled workflow detects new offered builds and requests
-a publish on `main` without committing generated files.
+The publish workflow uses the current UTC epoch second as the next serial. Signing and deployment
+both require the current tip of `main`. The deployment checks the signed serial again immediately
+before publishing. Assembly verifies the index and images and checks that the Pages archive will
+include them. If the new catalogue fails, the workflow uses the last complete signed snapshot,
+from Pages first or from the last successful Pages deployment's retained artifact. It deploys the
+legacy update and reports the v2 failure. If neither source can be authenticated, it reports
+`NO_AUTHENTICATED_V2_SNAPSHOT` and leaves the entire site unchanged. Without a committed public
+key, the publish does not contact the v2 services and deploys only the legacy site. A separate
+scheduled workflow detects new offered builds and requests a publish on `main` without
+committing generated files.
 
 The [two-provider fixture](../bot/tests/fixtures/two-ports/registry/) and
 [its golden index](../bot/tests/fixtures/two-ports/index.json) show two projects for a single in-game ID.

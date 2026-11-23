@@ -1,45 +1,11 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use semver::Version;
 use serde::Serialize;
 
 use crate::{builds::Build, registry::Registry, schema::*};
-
-// Keep URL separators and unreserved characters; encode each path segment's
-// other bytes (including raw %, ?, and #) rather than treating them as URL syntax.
-const PATH_SEGMENT: &AsciiSet = &CONTROLS
-    .add(b' ')
-    .add(b'!')
-    .add(b'"')
-    .add(b'#')
-    .add(b'$')
-    .add(b'%')
-    .add(b'&')
-    .add(b'\'')
-    .add(b'(')
-    .add(b')')
-    .add(b'*')
-    .add(b'+')
-    .add(b',')
-    .add(b':')
-    .add(b';')
-    .add(b'<')
-    .add(b'=')
-    .add(b'>')
-    .add(b'?')
-    .add(b'@')
-    .add(b'[')
-    .add(b'\\')
-    .add(b']')
-    .add(b'^')
-    .add(b'`')
-    .add(b'{')
-    .add(b'|')
-    .add(b'}');
 
 #[derive(Serialize)]
 struct Index<'a> {
@@ -47,7 +13,6 @@ struct Index<'a> {
     serial: u64,
     generated: &'a str,
     builds: &'a [Build],
-    image_sha256: BTreeMap<String, String>,
     categories: &'a [Category],
     projects: Vec<IndexProject<'a>>,
     revoked: &'a [Revocation],
@@ -103,14 +68,6 @@ struct IndexRelease<'a> {
     dependencies: &'a [Dependency],
 }
 
-fn image_url(id: &ProjectId, path: &RelativePath) -> String {
-    format!(
-        "pages/{}/{}",
-        id.as_str(),
-        utf8_percent_encode(path.as_str(), PATH_SEGMENT)
-    )
-}
-
 pub fn write(
     registry: &Registry,
     checkout: &Path,
@@ -118,18 +75,41 @@ pub fn write(
     generated: &str,
     dest: &Path,
 ) -> io::Result<()> {
+    fs::create_dir_all(dest)?;
+    let pages = dest.join("pages");
+    // A publish never mixes the current page set with images in an earlier output.
+    fs::create_dir(&pages)?;
     let projects = registry
         .projects
         .values()
-        .filter_map(|entry| {
-            if entry.releases.is_empty() {
-                return None;
-            }
+        .filter(|entry| !entry.releases.is_empty())
+        .filter_map(|entry| entry.page.as_ref().map(|page| (entry, page)))
+        .map(|(entry, page)| {
             let project = &entry.project;
-            let page = entry.page.as_ref()?;
-            let image_url = |path: &RelativePath| image_url(&project.id, path);
+            let id = project.id.as_str();
+            let source = checkout.join("registry/projects").join(id).join("page");
+            let target = pages.join(id);
+            fs::create_dir(&target)?;
+            let stage = |path: &RelativePath| -> io::Result<String> {
+                let bytes = fs::read(source.join(path.as_str()))?;
+                // Select the public extension from the bytes, not the author's filename.
+                let extension = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    "png"
+                } else if bytes.starts_with(b"\xff\xd8\xff") {
+                    "jpg"
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "expected a PNG or JPEG image",
+                    ));
+                };
+                let digest = sunrise_release_sign::sha256_hex(&bytes);
+                let file = format!("{digest}.{extension}");
+                fs::write(target.join(&file), bytes)?;
+                Ok(format!("pages/{id}/{file}"))
+            };
             let fit = registry.fits.get(&project.id);
-            Some(IndexProject {
+            Ok(IndexProject {
                 id: &project.id,
                 slug: &project.slug,
                 mod_id: &project.mod_id,
@@ -143,15 +123,17 @@ pub fn write(
                 homepage: page.homepage.as_ref(),
                 issues: page.issues.as_ref(),
                 source: page.source.as_ref(),
-                icon: image_url(&page.icon),
+                icon: stage(&page.icon)?,
                 screenshots: page
                     .screenshots
                     .iter()
-                    .map(|shot| IndexScreenshot {
-                        path: image_url(&shot.path),
-                        caption: &shot.caption,
+                    .map(|shot| {
+                        Ok(IndexScreenshot {
+                            path: stage(&shot.path)?,
+                            caption: &shot.caption,
+                        })
                     })
-                    .collect(),
+                    .collect::<io::Result<_>>()?,
                 categories: &page.categories,
                 repository: IndexRepository {
                     id: project.repository,
@@ -178,47 +160,12 @@ pub fn write(
                     .collect(),
             })
         })
-        .collect();
-    fs::create_dir_all(dest)?;
-    let pages = dest.join("pages");
-    // A publish never mixes the current page set with images in an earlier output.
-    fs::create_dir(&pages)?;
-    let mut image_sha256 = BTreeMap::new();
-    for entry in registry
-        .projects
-        .values()
-        .filter(|entry| !entry.releases.is_empty())
-    {
-        if let Some(page) = &entry.page {
-            let project = entry.project.id.as_str();
-            let source = checkout
-                .join("registry/projects")
-                .join(project)
-                .join("page");
-            let target = pages.join(project);
-            for image in
-                std::iter::once(&page.icon).chain(page.screenshots.iter().map(|shot| &shot.path))
-            {
-                let relative = Path::new(image.as_str());
-                let target = target.join(relative);
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let bytes = fs::read(source.join(relative))?;
-                fs::write(target, &bytes)?;
-                image_sha256.insert(
-                    image_url(&entry.project.id, image),
-                    sunrise_release_sign::sha256_hex(&bytes),
-                );
-            }
-        }
-    }
+        .collect::<io::Result<_>>()?;
     let index = Index {
         schema: 2,
         serial,
         generated,
         builds: &registry.builds,
-        image_sha256,
         categories: &registry.categories,
         projects,
         revoked: &registry.revoked,

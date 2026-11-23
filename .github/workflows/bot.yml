@@ -5,13 +5,17 @@ on:
     paths:
       - 'bot/**'
       - 'registry/**'
+      - '.github/registry-v2/**'
       - '.github/workflows/bot.yml'
+      - '.github/workflows/publish.yml'
   push:
     branches: [main]
     paths:
       - 'bot/**'
       - 'registry/**'
+      - '.github/registry-v2/**'
       - '.github/workflows/bot.yml'
+      - '.github/workflows/publish.yml'
 
 permissions:
   contents: read
@@ -34,6 +38,14 @@ jobs:
       - name: Check the v2 registry
         working-directory: .
         run: cargo run --locked --manifest-path bot/Cargo.toml -- check .
+      - name: Exercise signed Pages publication and recovery fixtures
+        working-directory: .
+        env:
+          REGISTRY_BOT: ${{ github.workspace }}/target/debug/registry-bot
+          REGISTRY_VERIFIER: ${{ runner.temp }}/registry-index-verifier/debug/registry-bot
+        run: |
+          cargo build --locked --manifest-path bot/verifier/Cargo.toml --target-dir "$RUNNER_TEMP/registry-index-verifier"
+          python3 -B .github/registry-v2/test_publish.py
       - name: Dry watch of an empty registry (no network)
         working-directory: .
         run: |

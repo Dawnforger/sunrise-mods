@@ -3,9 +3,16 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    rc::Rc,
 };
 
-use sunrise_mod_package::{Manifest, Package, index::MAX_FILE, sdk};
+use mod_surface::{
+    Surface,
+    uses::{Fit as SurfaceFit, PLAIN_SCHEMA, USES_FILE, UsesTable},
+};
+use sunrise_mod_package::{
+    Manifest, Package, index::MAX_FILE, manifest::MAX_USES, native_route, sdk,
+};
 use sunrise_release_sign::{SIGNATURE, SUMS, check, sdk_digest, sha256_hex, trusted_keys_for};
 
 use crate::{
@@ -17,7 +24,6 @@ use crate::{
 };
 
 const SURFACE: &str = "surface.json";
-const BUILD_DATA: &str = "build-data.tar.xz";
 type Cells = BTreeMap<(Sha256, BuildName, Commit), bool>;
 
 trait Judge {
@@ -138,7 +144,6 @@ pub fn run(
             downloads: Https,
             packages: BTreeMap::new(),
             sdks: BTreeMap::new(),
-            archives: BTreeMap::new(),
         },
         out,
     )
@@ -201,8 +206,7 @@ struct Tool<'a, D> {
     root: &'a Path,
     downloads: D,
     packages: BTreeMap<Sha256, (PathBuf, Manifest)>,
-    sdks: BTreeMap<Commit, Result<sdk::Index, String>>,
-    archives: BTreeMap<Commit, Result<(), String>>,
+    sdks: BTreeMap<Commit, Result<Rc<Sdk>, String>>,
 }
 
 fn package(
@@ -243,7 +247,14 @@ fn sdk_file(
     Ok(path)
 }
 
-fn sdk(downloader: &impl Download, mirror: &Path, commit: &Commit) -> Result<sdk::Index, String> {
+struct Sdk {
+    content_api: String,
+    game: String,
+    surface_bytes: Vec<u8>,
+    surface: Result<Surface, String>,
+}
+
+fn sdk(downloader: &impl Download, mirror: &Path, commit: &Commit) -> Result<Rc<Sdk>, String> {
     let bytes = |name| {
         fs::read(sdk_file(downloader, mirror, commit, name, SMALL)?).map_err(|e| e.to_string())
     };
@@ -259,10 +270,16 @@ fn sdk(downloader: &impl Download, mirror: &Path, commit: &Commit) -> Result<sdk
     let index = bytes(sdk::INDEX)?;
     check(sdk::INDEX, &expected, &sha256_hex(&index))?;
     let index = sdk::Index::read_for_fit(&index, commit.as_str()).map_err(|e| e.to_string())?;
+    let surface_bytes = bytes(SURFACE)?;
     index
-        .verify(SURFACE, bytes(SURFACE)?.as_slice())
+        .verify(SURFACE, surface_bytes.as_slice())
         .map_err(|e| e.to_string())?;
-    Ok(index)
+    Ok(Rc::new(Sdk {
+        content_api: index.content_api,
+        game: index.build.game,
+        surface: Surface::read(&surface_bytes).map_err(|e| e.to_string()),
+        surface_bytes,
+    }))
 }
 
 impl<D: Download> Judge for Tool<'_, D> {
@@ -273,80 +290,79 @@ impl<D: Download> Judge for Tool<'_, D> {
             .entry(build.commit.clone())
             .or_insert_with(|| sdk(&self.downloads, &mirror, &build.commit))
             .as_ref()
+            .map(Rc::clone)
             .map_err(Clone::clone)?;
         let (file, manifest) = match self.packages.entry(asset.sha256.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(package(&self.downloads, self.root, asset)?),
         };
-        // The same package metadata gates as cargo-sunrise-mod registry/fit.rs. The ordinary
-        // fits command judges native uses lists only; content and exact pins need no such list.
         if target.content_api != manifest.api {
             return Ok(false);
         }
         let Some(native) = &manifest.native else {
             return Ok(true);
         };
-        if native.game != target.build.game {
+        if native.game != target.game {
             return Ok(false);
         }
         if native.sunrise == build.commit.as_str() {
             return Ok(true);
         }
-        if !manifest.internals.is_empty() || !native.mixin.is_empty() || !native.r#loop.is_empty() {
-            // Only game-code uses need this archive (Sunrise game_uses::declared); the tool
-            // verifies its signed SDK digest and applies its own unpacking limits.
-            let result = self
-                .archives
-                .entry(build.commit.clone())
-                .or_insert_with(|| {
-                    let metadata = target
-                        .assets
-                        .get(BUILD_DATA)
-                        .ok_or("SDK has no game build data")?;
-                    sdk_file(
-                        &self.downloads,
-                        &mirror,
-                        &build.commit,
-                        BUILD_DATA,
-                        metadata.size,
-                    )
-                    .map(|_| ())
-                });
-            // A missing archive can still leave a definite API break. The tool reports an
-            // unknown verdict, not a fit, when the missing information prevents comparison.
-            if let Err(why) = result {
-                eprintln!(
-                    "game build data unavailable for {}: {}",
-                    build.id.as_str(),
-                    escape(why)
-                );
+        if let Some(table) = native_route::manifest_game_code(manifest) {
+            return Err(format!(
+                "cross-build comparison for {table} needs the shared package fit API"
+            ));
+        }
+        let bytes = Package::entry(file, USES_FILE, MAX_USES)?.ok_or("package has no uses list")?;
+        let mut table = UsesTable::read(&bytes).map_err(|e| format!("{USES_FILE}: {e}"))?;
+        if table.made_for != native.sunrise {
+            return Err("uses list is not for the manifest's pin".into());
+        }
+        // The manifest has no game code. Unexpected game entries in the package are
+        // not part of the typed API comparison and cannot produce either verdict.
+        if table
+            .entries
+            .iter()
+            .any(|e| e.game_code.is_some() || e.id.starts_with("game:"))
+        {
+            return Err("uses list includes game code outside the API comparison".into());
+        }
+        let surface = target.surface.as_ref().map_err(Clone::clone)?;
+        // FitReport prefers known changes to Unversioned. Complete the hook evidence
+        // before comparing so a known change cannot hide an incomplete comparison.
+        let missing_hook_versions = |table: &UsesTable| {
+            surface.hooks.iter().any(|hook| {
+                table
+                    .entries
+                    .binary_search_by(|entry| entry.id.cmp(&hook.id))
+                    .is_ok_and(|i| table.entries[i].version.is_none())
+            })
+        };
+        if missing_hook_versions(&table) {
+            if table.schema < PLAIN_SCHEMA {
+                let pin = Commit::parse(native.sunrise.clone())?;
+                let baseline = self
+                    .sdks
+                    .entry(pin.clone())
+                    .or_insert_with(|| sdk(&self.downloads, &mirror, &pin))
+                    .as_ref()
+                    .map_err(Clone::clone)?;
+                table
+                    .pin_hook_versions(&baseline.surface_bytes)
+                    .map_err(|e| e.to_string())?;
+            }
+            if missing_hook_versions(&table) {
+                return Err("uses list has no version for a used hook".into());
             }
         }
-        // Legacy uses lists can need the source SDK to recover hook versions. A source SDK
-        // that was pruned does not stop the tool judging a list that already has versions.
-        let pin = Commit::parse(native.sunrise.clone())?;
-        self.sdks
-            .entry(pin.clone())
-            .or_insert_with(|| sdk(&self.downloads, &mirror, &pin));
-        let output = Command::new("cargo-sunrise-mod")
-            .args(["sunrise-mod", "fits"])
-            .arg(file.as_path())
-            .arg("--build")
-            .arg(build.commit.as_str())
-            .current_dir(self.root)
-            .env("SUNRISE_SDK_BASE", &mirror)
-            .env_remove("SUNRISE_SDK_TRUSTED_KEY")
-            .output()
-            .map_err(|e| format!("cannot start the pinned fit tool: {e}"))?;
-        match output.status.code() {
-            Some(0) => Ok(true),
-            Some(1) => Ok(false),
-            _ => Err(format!(
-                "fit tool {}: {} {}",
-                output.status,
-                String::from_utf8_lossy(&output.stdout).trim(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            )),
+        let report = table.fits(table.entries.iter(), surface);
+        if let Some(note) = report.deferred {
+            return Err(note);
+        }
+        match report.verdict {
+            SurfaceFit::Fits => Ok(true),
+            SurfaceFit::DoesNotFit(_) => Ok(false),
+            SurfaceFit::Unversioned(_) => Err("uses list has no version for a used hook".into()),
         }
     }
 }

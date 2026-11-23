@@ -1038,6 +1038,24 @@ fn full_index_matches_golden_with_both_providers() {
 }
 
 #[test]
+fn published_image_extension_is_canonical_for_jpeg_content() {
+    let temp = checkout();
+    let source = temp.path().join(SCREENSHOT);
+    let jpeg = [0xff, 0xd8, 0xff, 0xd9];
+    fs::remove_file(&source).unwrap();
+    fs::write(source.with_extension("JPEG"), jpeg).unwrap();
+    replace(temp.path(), PAGE, "map.png", "map.JPEG");
+    let catalogue = index(temp.path());
+    let hash = sunrise_release_sign::sha256_hex(&jpeg);
+    let file = format!("pages/Ab3dE9xQ/{hash}.jpg");
+    assert_eq!(catalogue["projects"][0]["screenshots"][0]["path"], file);
+    assert_eq!(
+        fs::read(temp.path().join("output").join(file)).unwrap(),
+        jpeg
+    );
+}
+
+#[test]
 fn project_without_a_release_does_not_need_a_page_and_is_not_listed() {
     let temp = fit_checkout();
     fs::remove_file(temp.path().join(RELEASE)).unwrap();
