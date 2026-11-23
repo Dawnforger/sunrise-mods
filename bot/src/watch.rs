@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 
 use crate::{
     game_build::Builds,
-    github::{self, Attestation, GitHub},
+    github::{self, Attestation, GitHub, Observation, Repo},
     registry::{self, ProjectEntry, Registry},
     release_payload::{self, Payload},
     schema::{
@@ -35,32 +35,62 @@ fn tag_version(project: &schema::Project, tag: &str) -> Option<Version> {
     Version::parse(tail.strip_prefix('v')?).ok()
 }
 
-fn candidates<'a>(entry: &ProjectEntry, releases: &'a [github::Release]) -> Vec<Candidate<'a>> {
-    let approved = entry
-        .releases
-        .values()
-        .max_by_key(|row| (&row.published, &row.version));
-    let approved_time = approved
-        .and_then(|row| releases.iter().find(|r| r.tag_name == row.tag.as_str()))
-        .and_then(github::Release::published);
+struct Approved<'a> {
+    row: &'a Release,
+    release: &'a github::Release,
+    published: OffsetDateTime,
+}
+
+fn latest_approved<'a>(
+    entry: &'a ProjectEntry,
+    releases: &'a [github::Release],
+) -> Result<Option<Approved<'a>>, String> {
+    let mut latest: Option<Approved<'a>> = None;
+    for row in entry.releases.values() {
+        let (release, published) = releases
+            .iter()
+            .find_map(|release| {
+                if release.tag_name != row.tag.as_str() {
+                    return None;
+                }
+                Some((release, release.published()?))
+            })
+            .ok_or_else(|| {
+                format!(
+                    "GitHub no longer reports the publication time of approved release {}",
+                    row.tag.as_str()
+                )
+            })?;
+        if latest
+            .as_ref()
+            .is_none_or(|last| (published, &row.version) > (last.published, &last.row.version))
+        {
+            latest = Some(Approved {
+                row,
+                release,
+                published,
+            });
+        }
+    }
+    Ok(latest)
+}
+
+fn candidates<'a>(
+    entry: &ProjectEntry,
+    releases: &'a [github::Release],
+    approved: Option<&Approved<'_>>,
+) -> Vec<Candidate<'a>> {
     let mut candidates = releases
         .iter()
         .filter_map(|release| {
             let published = release.published()?;
             let version = tag_version(&entry.project, &release.tag_name)?;
-            if entry.releases.contains_key(&version) {
+            if entry.releases.contains_key(&version)
+                || approved.is_some_and(|last| {
+                    (published, &version) <= (last.published, &last.row.version)
+                })
+            {
                 return None;
-            }
-            if let Some(row) = approved {
-                let new = approved_time
-                    .filter(|at| at.date().to_string() == row.published.as_str())
-                    .map_or_else(
-                        || published.date().to_string().as_str() > row.published.as_str(),
-                        |at| (published, &version) > (at, &row.version),
-                    );
-                if !new {
-                    return None;
-                }
             }
             Some(Candidate {
                 release,
@@ -71,7 +101,6 @@ fn candidates<'a>(entry: &ProjectEntry, releases: &'a [github::Release]) -> Vec<
         .collect::<Vec<_>>();
     candidates.sort_by(|a, b| (a.published, &a.version).cmp(&(b.published, &b.version)));
     if approved.is_none() {
-        // No backlog: look for the newest correctly signed release, not the highest version number.
         candidates.reverse();
     }
     candidates
@@ -85,14 +114,14 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
         summary.push_str("No repositories are registered.\n");
         return fs::write(out.join("watch.md"), summary).map_err(|e| e.to_string());
     }
-    let open = github.open_branches()?;
+    let branches = github.release_branches()?;
     let mut builds = Builds::new(github)?;
     let categories = categories(&registry)?;
     let workflow = workflow(&registry)?.to_owned();
     let mut renamed = false;
     for repo in &mut registry.watched.repository {
         let live: Result<_, String> = (|| {
-            let live = github.repository(repo.id)?;
+            let live = github.repository(Repo::Registered(repo.id))?;
             if live.id != repo.id || live.private {
                 return Err("registered repository is no longer public or has the wrong ID".into());
             }
@@ -114,7 +143,7 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
             repo.name = live.name;
             renamed = true;
         }
-        let releases = match github.releases(&repo.name) {
+        let releases = match github.releases(Repo::Registered(repo.id)) {
             Ok(releases) => releases,
             Err(reason) => {
                 note(&mut summary, repo.name.as_str(), &reason);
@@ -123,14 +152,31 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
         };
         for package in &repo.package {
             let id = &package.project;
-            if has_open_release(&open, id) {
+            if has_open_release(&branches.open, id) {
                 continue;
             }
             let entry = registry
                 .projects
                 .get(id)
                 .ok_or("registered project is missing")?;
-            for candidate in candidates(entry, &releases) {
+            let approved = match latest_approved(entry, &releases) {
+                Ok(approved) => approved,
+                Err(reason) => {
+                    note(&mut summary, id.as_str(), &reason);
+                    continue;
+                }
+            };
+            let mut candidates = candidates(entry, &releases, approved.as_ref());
+            if approved.is_none() {
+                // Registration observes only the newest publication. Neither an unsigned or
+                // rejected release nor an inconclusive verification opens an older release.
+                candidates.truncate(1);
+            }
+            for candidate in candidates {
+                let branch = format!("release/{}/{}", id.as_str(), candidate.version);
+                if branches.handled.contains(&branch) {
+                    continue;
+                }
                 let label = format!("{} {}", id.as_str(), candidate.version);
                 let work = tempfile::tempdir().map_err(|e| e.to_string())?;
                 let request = Request {
@@ -145,7 +191,7 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
                 let assets = match assets {
                     Ok(assets) => assets,
                     Err(reason) => {
-                        note(&mut summary, &label, &reason);
+                        note(&mut summary, &label, &reason.to_string());
                         continue;
                     }
                 };
@@ -178,10 +224,6 @@ pub fn run(checkout: &Path, out: &Path, github: &dyn GitHub) -> Result<(), Strin
                     }
                     Err(reason) => {
                         note(&mut summary, &label, &reason);
-                        // A signed but malformed first release must be fixed, not replaced by older content.
-                        if entry.releases.is_empty() {
-                            break;
-                        }
                     }
                 }
             }
@@ -220,12 +262,13 @@ pub fn check(
         .ok_or("project is not registered on main")?;
     let raw = fs::read_to_string(claim).map_err(|e| e.to_string())?;
     let claim = toml::from_str::<Release>(&raw).map_err(|e| e.to_string())?;
-    let live = github.repository(entry.project.repository)?;
+    let live = github.repository(Repo::Registered(entry.project.repository))?;
     if live.id != entry.project.repository || live.private {
         return Err("registered repository is no longer public or has the wrong ID".into());
     }
-    let releases = github.releases(&live.name)?;
-    let candidate = candidates(entry, &releases)
+    let releases = github.releases(Repo::Registered(live.id))?;
+    let approved = latest_approved(entry, &releases)?;
+    let candidate = candidates(entry, &releases, approved.as_ref())
         .into_iter()
         .find(|c| c.version == claim.version && c.release.tag_name == claim.tag.as_str())
         .ok_or(
@@ -242,7 +285,8 @@ pub fn check(
     };
     fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let work = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let assets = release_assets(&request, work.path(), Some(&claim))?;
+    let assets =
+        release_assets(&request, work.path(), Some(&claim)).map_err(|error| error.to_string())?;
     let (row, payload) = prepared(
         &request,
         candidate.published,
@@ -261,17 +305,10 @@ pub fn check(
         &out.join("source"),
         payload.package.is_native(),
     )?;
-    if let Some(previous) = entry
-        .releases
-        .values()
-        .max_by_key(|row| (&row.published, &row.version))
-    {
-        let release = releases
-            .iter()
-            .find(|r| r.tag_name == previous.tag.as_str() && r.published().is_some())
-            .ok_or("last approved release is unavailable for the scanner diff")?;
+    if let Some(approved) = approved {
+        let previous = approved.row;
         let request = Request {
-            release,
+            release: approved.release,
             version: &previous.version,
             ..request
         };
@@ -281,8 +318,9 @@ pub fn check(
             "smod",
             "package.smod",
             previous_dir.path(),
-            Some(&previous.file),
-        )?;
+            Some(Claim::Approved(&previous.file)),
+        )
+        .map_err(|error| error.to_string())?;
         if file != previous.file || workflow != previous.workflow {
             return Err(
                 "last approved package no longer matches its registry row and attestation".into(),
@@ -344,16 +382,35 @@ struct Assets {
     workflow: SignerWorkflowRef,
 }
 
+#[derive(Clone, Copy)]
+enum Claim<'a> {
+    Proposed(&'a Asset),
+    Approved(&'a Asset),
+}
+
 fn release_assets(
     request: &Request<'_>,
     dir: &Path,
     claim: Option<&Release>,
-) -> Result<Assets, String> {
-    let (package, package_ref) =
-        asset(request, "smod", "package.smod", dir, claim.map(|r| &r.file))?;
-    let (page, page_ref) = asset(request, "page.tar", "page.tar", dir, claim.map(|r| &r.page))?;
+) -> Result<Assets, Observation> {
+    let (package, package_ref) = asset(
+        request,
+        "smod",
+        "package.smod",
+        dir,
+        claim.map(|r| Claim::Proposed(&r.file)),
+    )?;
+    let (page, page_ref) = asset(
+        request,
+        "page.tar",
+        "page.tar",
+        dir,
+        claim.map(|r| Claim::Proposed(&r.page)),
+    )?;
     if package_ref != page_ref {
-        return Err("package and page attestations name different signer workflow refs".into());
+        return Err(Observation::Ineligible(
+            "package and page attestations name different signer workflow refs".into(),
+        ));
     }
     Ok(Assets {
         package,
@@ -362,78 +419,160 @@ fn release_assets(
     })
 }
 
+fn download_asset(
+    github: &dyn GitHub,
+    url: &str,
+    path: &Path,
+    live: &github::Asset,
+) -> Result<String, Observation> {
+    // The existing registry package download cap (sunrise_mod_package::index::MAX_FILE).
+    github
+        .download_release(url, path, live.size.min(MAX_FILE))
+        .map_err(Observation::Unknown)?;
+    if fs::metadata(path)
+        .map_err(|e| Observation::Unknown(e.to_string()))?
+        .len()
+        != live.size
+    {
+        return Err(Observation::Ineligible(
+            "download size differs from the GitHub release asset".into(),
+        ));
+    }
+    let hash = sha256_file(path).map_err(Observation::Unknown)?;
+    if live
+        .digest
+        .as_ref()
+        .is_some_and(|digest| digest != &format!("sha256:{hash}"))
+    {
+        return Err(Observation::Ineligible(
+            "download hash differs from the GitHub release asset".into(),
+        ));
+    }
+    Ok(hash)
+}
+
 fn asset(
     request: &Request<'_>,
     suffix: &str,
     local: &str,
     dir: &Path,
-    claim: Option<&Asset>,
-) -> Result<(Asset, SignerWorkflowRef), String> {
+    claim: Option<Claim<'_>>,
+) -> Result<(Asset, SignerWorkflowRef), Observation> {
     let tag = &request.release.tag_name;
+    let repo = request.entry.project.repository;
     let name = format!(
         "{}-{}.{suffix}",
         request.entry.project.mod_id.as_str(),
         request.version
     );
     let bundle_name = format!("{name}.sigstore.json");
-    let file = request.release.asset(&name)?;
-    let bundle = request.release.asset(&bundle_name)?;
-    let (url, bundle_url) = claim.map_or(
-        (
-            file.browser_download_url.as_str(),
-            bundle.browser_download_url.as_str(),
-        ),
-        |a| (a.url.as_str(), a.attestation.as_str()),
-    );
-    if !registry::release_download(url, tag, &name)
-        || !registry::release_download(bundle_url, tag, &bundle_name)
+    let file = request
+        .release
+        .asset(&name)
+        .map_err(Observation::Ineligible)?;
+    let bundle = request
+        .release
+        .asset(&bundle_name)
+        .map_err(Observation::Ineligible)?;
+    let url = file.browser_download_url.as_str();
+    let bundle_url = bundle.browser_download_url.as_str();
+    for (url, expected) in [(url, &name), (bundle_url, &bundle_name)] {
+        if !registry::release_download_repository(url, tag, expected)
+            .is_some_and(|owner| owner.eq_ignore_ascii_case(request.repository.as_str()))
+        {
+            return Err(Observation::Ineligible("GitHub release asset or bundle URL does not name the registered repository and release".into()));
+        }
+    }
+    if let Some(Claim::Proposed(claim)) = claim
+        && (claim.url.as_str() != url || claim.attestation.as_str() != bundle_url)
     {
-        return Err(
-            "release asset or bundle does not have its canonical GitHub download URL".into(),
-        );
+        return Err(Observation::Ineligible("proposed asset or bundle URL does not match the live release of the registered repository".into()));
     }
     let path = dir.join(local);
     let attestation = dir.join(format!("{local}.sigstore.json"));
-    // The existing registry package download cap (sunrise_mod_package::index::MAX_FILE).
-    github::download(url, &path, file.size.min(MAX_FILE))?;
-    github::download(bundle_url, &attestation, bundle.size.min(MAX_FILE))?;
-    let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
-    if size != file.size
-        || fs::metadata(&attestation).map_err(|e| e.to_string())?.len() != bundle.size
-    {
-        return Err("download size differs from the GitHub release asset".into());
-    }
-    let sha256 = sha256_file(&path)?;
-    if file
-        .digest
-        .as_ref()
-        .is_some_and(|digest| digest != &format!("sha256:{sha256}"))
-    {
-        return Err("download hash differs from the GitHub release asset".into());
-    }
-    if let Some(digest) = &bundle.digest
-        && digest != &format!("sha256:{}", sha256_file(&attestation)?)
-    {
-        return Err("download hash differs from the GitHub attestation bundle asset".into());
-    }
-    if claim.is_some_and(|a| a.size != size || a.sha256.as_str() != sha256) {
-        return Err("download size or hash differs from the approved/proposed release row".into());
-    }
-    let commit = request.github.tag_commit(request.repository, tag)?;
-    let workflow = Attestation {
-        repository_id: request.entry.project.repository,
-        repository_name: request.repository,
-        workflow_path: request.workflow,
-        tag,
-        commit: &commit,
-    }
-    .verify(&path, &attestation)?;
+    let sha256 = download_asset(request.github, url, &path, file)?;
+    let bundle_sha256 = download_asset(request.github, bundle_url, &attestation, bundle)?;
+    let mut old_name = None;
+    let (stored_url, stored_bundle) = match claim {
+        Some(Claim::Proposed(claim) | Claim::Approved(claim)) => {
+            if claim.size != file.size || claim.sha256.as_str() != sha256 {
+                return Err(Observation::Ineligible(
+                    "download size or hash differs from the approved/proposed release row".into(),
+                ));
+            }
+            for (old, current, expected, live, hash) in [
+                (claim.url.as_str(), url, &name, file, &sha256),
+                (
+                    claim.attestation.as_str(),
+                    bundle_url,
+                    &bundle_name,
+                    bundle,
+                    &bundle_sha256,
+                ),
+            ] {
+                if old == current {
+                    continue;
+                }
+                let old_repo = registry::release_download_repository(old, tag, expected)
+                    .ok_or_else(|| {
+                        Observation::Ineligible(
+                            "approved URL is not a GitHub download for this tag and asset".into(),
+                        )
+                    })?;
+                let old_repo =
+                    RepositoryName::parse(old_repo.into()).map_err(Observation::Ineligible)?;
+                let resolved = request
+                    .github
+                    .repository(Repo::Named(&old_repo))
+                    .map_err(Observation::Unknown)?;
+                if resolved.id != repo || resolved.private {
+                    return Err(Observation::Ineligible(
+                        "approved URL no longer resolves to the registered repository".into(),
+                    ));
+                }
+                // Confirm the actual browser URL still works after the rename. A matching
+                // repository and tag alone do not prove GitHub still serves that URL.
+                if download_asset(request.github, old, &dir.join("approved-alias"), live)? != *hash
+                {
+                    return Err(Observation::Ineligible(
+                        "approved URL does not serve the same release asset".into(),
+                    ));
+                }
+                if expected == &name {
+                    old_name = Some(old_repo);
+                }
+            }
+            (claim.url.as_str(), claim.attestation.as_str())
+        }
+        None => (url, bundle_url),
+    };
+    let commit = request
+        .github
+        .tag_commit(Repo::Registered(repo), tag)
+        .map_err(Observation::Unknown)?;
+    let verify = |repository_name| {
+        request.github.verify_attestation(
+            Attestation {
+                repository_id: repo,
+                repository_name,
+                workflow_path: request.workflow,
+                tag,
+                commit: &commit,
+            },
+            &path,
+            &attestation,
+        )
+    };
+    let workflow = verify(request.repository).or_else(|error| match &old_name {
+        Some(old) => verify(old),
+        None => Err(error),
+    })?;
     Ok((
         Asset {
-            url: HttpsUrl::parse(url.into())?,
-            size,
-            sha256: Sha256::parse(sha256)?,
-            attestation: HttpsUrl::parse(bundle_url.into())?,
+            url: HttpsUrl::parse(stored_url.into()).map_err(Observation::Ineligible)?,
+            size: file.size,
+            sha256: Sha256::parse(sha256).map_err(Observation::Ineligible)?,
+            attestation: HttpsUrl::parse(stored_bundle.into()).map_err(Observation::Ineligible)?,
         },
         workflow,
     ))
@@ -502,7 +641,7 @@ fn note(summary: &mut String, label: &str, reason: &str) {
 mod tests {
     use super::*;
     use crate::schema::RepositoryId;
-    use std::collections::BTreeMap;
+    use std::{cell::RefCell, collections::BTreeMap};
 
     const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/two-ports");
     const RELEASES: &str = include_str!("../tests/fixtures/watcher/releases.json");
@@ -515,12 +654,12 @@ mod tests {
         let folder = ProjectId::parse("Zz91kLmN".into()).unwrap();
         let root = registry.projects.get_mut(&root).unwrap();
         root.releases.clear();
-        let initial = candidates(root, &releases);
+        let initial = candidates(root, &releases, None);
         assert_eq!(initial.first().unwrap().release.tag_name, "v1.1.0");
         assert_eq!(initial.len(), 3);
         let folder = registry.projects.get_mut(&folder).unwrap();
         folder.releases.clear();
-        let initial = candidates(folder, &releases);
+        let initial = candidates(folder, &releases, None);
         assert_eq!(initial.len(), 1);
         assert_eq!(initial[0].release.tag_name, "wayfinder/v2.0.0-beta.1");
     }
@@ -530,7 +669,9 @@ mod tests {
         let registry = load(Path::new(FIXTURE)).unwrap();
         let releases = serde_json::from_str::<Vec<github::Release>>(RELEASES).unwrap();
         let id = ProjectId::parse("Ab3dE9xQ".into()).unwrap();
-        let remaining = candidates(&registry.projects[&id], &releases);
+        let entry = &registry.projects[&id];
+        let approved = latest_approved(entry, &releases).unwrap();
+        let remaining = candidates(entry, &releases, approved.as_ref());
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].release.tag_name, "v1.1.0");
         assert!(has_open_release(
@@ -543,39 +684,277 @@ mod tests {
         ));
     }
 
-    struct Recorded;
+    #[test]
+    fn approved_watermark_and_previous_source_follow_publication_not_version_on_the_same_day() {
+        let id = ProjectId::parse("Ab3dE9xQ".into()).unwrap();
+        let mut registry = load(Path::new(FIXTURE)).unwrap();
+        let entry = registry.projects.get_mut(&id).unwrap();
+        let mut later: Release =
+            toml::from_str(&toml::to_string(entry.releases.values().next().unwrap()).unwrap())
+                .unwrap();
+        later.version = Version::new(1, 1, 0);
+        later.tag = Text::parse("v1.1.0".into()).unwrap();
+        entry.releases.insert(later.version.clone(), later);
+        let releases: Vec<github::Release> = serde_json::from_value(serde_json::json!([
+            {"tag_name":"v1.2.0","published_at":"2026-11-23T10:00:00Z","draft":false,"assets":[]},
+            {"tag_name":"v1.1.0","published_at":"2026-11-23T11:00:00Z","draft":false,"assets":[]},
+            {"tag_name":"v1.1.5","published_at":"2026-11-23T10:30:00Z","draft":false,"assets":[]},
+            {"tag_name":"v1.0.0","published_at":"2026-11-23T11:30:00Z","draft":false,"assets":[]}
+        ]))
+        .unwrap();
+        let previous = latest_approved(entry, &releases).unwrap().unwrap();
+        assert_eq!(previous.release.tag_name, "v1.1.0");
+        let eligible = candidates(entry, &releases, Some(&previous));
+        assert_eq!(eligible.len(), 1);
+        assert_eq!(eligible[0].release.tag_name, "v1.0.0");
+    }
+
+    const CURRENT: &str = "Example/Wayfinder-Renamed";
+    const OLD: &str = "example/wayfinder";
+    const BODY: &[u8] = b"release bytes";
+    const BUNDLE: &[u8] = b"attestation bytes";
+
+    #[derive(Default)]
+    struct Recorded {
+        downloads: RefCell<Vec<String>>,
+        inconclusive: bool,
+        alias_reassigned: bool,
+        alias_broken: bool,
+    }
 
     impl GitHub for Recorded {
-        fn repository(&self, id: RepositoryId) -> Result<github::Repository, String> {
-            let response = match id.get() {
-                123456789 => {
-                    r#"{"id":123456789,"full_name":"Example/Wayfinder-Renamed","private":false}"#
+        fn repository(&self, repo: Repo<'_>) -> Result<github::Repository, String> {
+            let (id, name) = match repo {
+                Repo::Registered(id) if id.get() == 123456789 => (id.get(), CURRENT),
+                Repo::Registered(id) if id.get() == 987654321 => {
+                    (id.get(), "other/port-collection")
                 }
-                987654321 => {
-                    r#"{"id":987654321,"full_name":"other/port-collection","private":false}"#
+                Repo::Named(name)
+                    if name.as_str().eq_ignore_ascii_case(OLD) && !self.alias_reassigned =>
+                {
+                    (123456789, CURRENT)
                 }
-                _ => return Err("unexpected repository ID".into()),
+                Repo::Named(name) if name.as_str().eq_ignore_ascii_case(OLD) => (555, OLD),
+                _ => return Err("unexpected repository lookup".into()),
             };
-            serde_json::from_str(response).map_err(|e| e.to_string())
+            serde_json::from_value(serde_json::json!({"id":id,"full_name":name,"private":false}))
+                .map_err(|e| e.to_string())
         }
 
-        fn releases(&self, repo: &RepositoryName) -> Result<Vec<github::Release>, String> {
-            assert_ne!(repo.as_str().to_ascii_lowercase(), "example/wayfinder");
-            Ok(Vec::new())
+        fn releases(&self, repo: Repo<'_>) -> Result<Vec<github::Release>, String> {
+            match repo {
+                Repo::Registered(id) if id.get() == 123456789 && self.inconclusive => Ok(vec![
+                    live_release("1.2.0", "2026-11-23T13:00:00Z", None),
+                    live_release("1.1.0", "2026-11-23T12:00:00Z", None),
+                ]),
+                Repo::Registered(_) => Ok(Vec::new()),
+                Repo::Named(_) => Err("registered releases must be fetched by numeric ID".into()),
+            }
         }
 
-        fn open_branches(&self) -> Result<BTreeSet<String>, String> {
-            Ok(BTreeSet::new())
+        fn release_branches(&self) -> Result<github::ReleaseBranches, String> {
+            Ok(github::ReleaseBranches::default())
         }
-        fn tag_commit(&self, _: &RepositoryName, _: &str) -> Result<String, String> {
-            Err("no release should be fetched".into())
+
+        fn tag_commit(&self, repo: Repo<'_>, tag: &str) -> Result<String, String> {
+            assert!(matches!(repo, Repo::Registered(id) if id.get() == 123456789));
+            assert_eq!(tag, "v1.2.0");
+            Ok("a".repeat(40))
         }
+
+        fn download_release(&self, url: &str, dest: &Path, _: u64) -> Result<(), String> {
+            self.downloads.borrow_mut().push(url.into());
+            if self.inconclusive || (self.alias_broken && url.contains(OLD)) {
+                return Err("asset temporarily unavailable".into());
+            }
+            let bytes = if url.ends_with(".sigstore.json") {
+                BUNDLE
+            } else {
+                BODY
+            };
+            fs::write(dest, bytes).map_err(|e| e.to_string())
+        }
+
+        fn verify_attestation(
+            &self,
+            check: Attestation<'_>,
+            file: &Path,
+            bundle: &Path,
+        ) -> Result<SignerWorkflowRef, Observation> {
+            assert_eq!(check.repository_id.get(), 123456789);
+            assert_eq!(fs::read(file).unwrap().as_slice(), BODY);
+            assert_eq!(fs::read(bundle).unwrap().as_slice(), BUNDLE);
+            SignerWorkflowRef::parse(format!("{}@refs/tags/release-v1", schema::RELEASE_WORKFLOW))
+                .map_err(Observation::Ineligible)
+        }
+    }
+
+    fn live_release(version: &str, published: &str, digest: Option<String>) -> github::Release {
+        let name = format!("wayfinder-{version}.smod");
+        let bundle = format!("{name}.sigstore.json");
+        serde_json::from_value(serde_json::json!({
+            "tag_name":format!("v{version}"), "published_at":published, "draft":false,
+            "assets":[
+                {"name":name,"size":BODY.len(),"digest":digest,"browser_download_url":format!("https://github.com/{CURRENT}/releases/download/v{version}/{name}")},
+                {"name":bundle,"size":BUNDLE.len(),"browser_download_url":format!("https://github.com/{CURRENT}/releases/download/v{version}/{bundle}")}
+            ]
+        })).unwrap()
+    }
+
+    #[test]
+    fn foreign_claim_urls_are_refused_with_or_without_github_digests() {
+        let registry = load(Path::new(FIXTURE)).unwrap();
+        let entry = &registry.projects[&ProjectId::parse("Ab3dE9xQ".into()).unwrap()];
+        let github = Recorded::default();
+        let work = tempfile::tempdir().unwrap();
+        fs::write(work.path().join("original"), BODY).unwrap();
+        let hash = sha256_file(&work.path().join("original")).unwrap();
+        let repo = RepositoryName::parse(CURRENT.into()).unwrap();
+        let version = Version::new(1, 2, 0);
+        for digest in [None, Some(format!("sha256:{hash}"))] {
+            let release = live_release("1.2.0", "2026-11-23T13:00:00Z", digest);
+            let request = Request {
+                github: &github,
+                entry,
+                repository: &repo,
+                workflow: schema::RELEASE_WORKFLOW,
+                release: &release,
+                version: &version,
+            };
+            for index in [0, 1] {
+                let url = |i: usize| {
+                    HttpsUrl::parse(if index == i {
+                        release.assets[i]
+                            .browser_download_url
+                            .replace(CURRENT, "unrelated/mirror")
+                    } else {
+                        release.assets[i].browser_download_url.clone()
+                    })
+                    .unwrap()
+                };
+                let claim = Asset {
+                    url: url(0),
+                    attestation: url(1),
+                    size: BODY.len() as u64,
+                    sha256: Sha256::parse(hash.clone()).unwrap(),
+                };
+                assert!(
+                    matches!(asset(&request, "smod", "test.smod", work.path(), Some(Claim::Proposed(&claim))), Err(Observation::Ineligible(reason)) if reason.contains("does not match the live release"))
+                );
+            }
+            let claim = Asset {
+                url: HttpsUrl::parse(release.assets[0].browser_download_url.clone()).unwrap(),
+                attestation: HttpsUrl::parse(release.assets[1].browser_download_url.clone())
+                    .unwrap(),
+                size: BODY.len() as u64,
+                sha256: Sha256::parse("a".repeat(64)).unwrap(),
+            };
+            assert!(
+                matches!(asset(&request, "smod", "test.smod", work.path(), Some(Claim::Proposed(&claim))), Err(Observation::Ineligible(reason)) if reason.contains("hash differs from the approved/proposed release row"))
+            );
+        }
+        assert!(
+            github
+                .downloads
+                .borrow()
+                .iter()
+                .all(|url| !url.contains("unrelated"))
+        );
+    }
+
+    #[test]
+    fn renamed_previous_asset_keeps_the_stored_hash_only_for_a_working_alias_of_the_same_repository()
+     {
+        let registry = load(Path::new(FIXTURE)).unwrap();
+        let entry = &registry.projects[&ProjectId::parse("Ab3dE9xQ".into()).unwrap()];
+        let work = tempfile::tempdir().unwrap();
+        fs::write(work.path().join("original"), BODY).unwrap();
+        let hash = sha256_file(&work.path().join("original")).unwrap();
+        let release = live_release("1.2.0", "2026-11-23T13:00:00Z", None);
+        let repo = RepositoryName::parse(CURRENT.into()).unwrap();
+        let version = Version::new(1, 2, 0);
+        let claim = Asset {
+            url: HttpsUrl::parse(release.assets[0].browser_download_url.replace(CURRENT, OLD))
+                .unwrap(),
+            attestation: HttpsUrl::parse(
+                release.assets[1].browser_download_url.replace(CURRENT, OLD),
+            )
+            .unwrap(),
+            size: BODY.len() as u64,
+            sha256: Sha256::parse(hash).unwrap(),
+        };
+        for (alias_reassigned, alias_broken) in [(false, false), (true, false), (false, true)] {
+            let github = Recorded {
+                alias_reassigned,
+                alias_broken,
+                ..Recorded::default()
+            };
+            let request = Request {
+                github: &github,
+                entry,
+                repository: &repo,
+                workflow: schema::RELEASE_WORKFLOW,
+                release: &release,
+                version: &version,
+            };
+            let result = asset(
+                &request,
+                "smod",
+                "test.smod",
+                work.path(),
+                Some(Claim::Approved(&claim)),
+            );
+            if alias_reassigned || alias_broken {
+                assert!(result.is_err());
+            } else {
+                let (file, _) = result.unwrap();
+                assert!(file == claim);
+                assert_eq!(github.downloads.borrow().len(), 4);
+            }
+        }
+    }
+
+    #[test]
+    fn registration_logs_an_inconclusive_first_observation_without_downloading_older_assets() {
+        let root = tempfile::tempdir().unwrap();
+        let ids = ["Ab3dE9xQ", "Zz91kLmN"];
+        let base = Path::new(FIXTURE).join("registry");
+        let fixture = root.path().join("registry");
+        for id in ids {
+            let project = Path::new("projects").join(id);
+            fs::create_dir_all(fixture.join(&project)).unwrap();
+            fs::copy(
+                base.join(&project).join("project.toml"),
+                fixture.join(&project).join("project.toml"),
+            )
+            .unwrap();
+        }
+        for file in [
+            "categories.toml",
+            "watched.toml",
+            "revoked.toml",
+            "release-workflow.toml",
+        ] {
+            fs::copy(base.join(file), fixture.join(file)).unwrap();
+        }
+        let out = tempfile::tempdir().unwrap();
+        let github = Recorded {
+            inconclusive: true,
+            ..Recorded::default()
+        };
+        run(root.path(), out.path(), &github).unwrap();
+        let summary = fs::read_to_string(out.path().join("watch.md")).unwrap();
+        assert!(summary.contains("release verification is unknown"));
+        assert!(!out.path().join("releases").exists());
+        let downloads = github.downloads.borrow();
+        assert_eq!(downloads.len(), 1);
+        assert!(downloads[0].contains("/v1.2.0/"));
     }
 
     #[test]
     fn renames_use_numeric_identity_and_write_only_watched_names() {
         let out = tempfile::tempdir().unwrap();
-        run(Path::new(FIXTURE), out.path(), &Recorded).unwrap();
+        run(Path::new(FIXTURE), out.path(), &Recorded::default()).unwrap();
         let text = fs::read_to_string(out.path().join("rename/registry/watched.toml")).unwrap();
         let rows: schema::Watched = toml::from_str(&text).unwrap();
         assert_eq!(

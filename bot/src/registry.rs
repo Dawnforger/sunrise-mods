@@ -321,7 +321,7 @@ fn read_releases(
                     ("url", &asset.url, &name),
                     ("attestation", &asset.attestation, &bundle),
                 ] {
-                    if !release_download(url.as_str(), row.tag.as_str(), name) {
+                    if release_download_repository(url.as_str(), row.tag.as_str(), name).is_none() {
                         tree.problem(&file, format!("{field}.{key} must be a GitHub release download HTTPS URL for {name} with the release tag"));
                     }
                 }
@@ -332,23 +332,22 @@ fn read_releases(
     releases
 }
 
-pub(crate) fn release_download(url: &str, tag: &str, asset: &str) -> bool {
+pub(crate) fn release_download_repository<'a>(
+    url: &'a str,
+    tag: &str,
+    asset: &str,
+) -> Option<&'a str> {
     // Check the raw authority and repository path, then decode only the release tag and asset.
     // GitHub's browser_download_url can percent-encode a tag such as wayfinder/v1.2.0.
-    let Some((repository, download)) = url
-        .strip_prefix("https://github.com/")
-        .and_then(|path| path.split_once("/releases/download/"))
-    else {
-        return false;
-    };
-    github_repository(repository)
+    let (repository, download) = url
+        .strip_prefix("https://github.com/")?
+        .split_once("/releases/download/")?;
+    let (tag_part, asset_part) = download.rsplit_once('/')?;
+    (github_repository(repository)
         && !download.contains(['?', '#'])
-        && download
-            .rsplit_once('/')
-            .is_some_and(|(tag_part, asset_part)| {
-                percent_decode_str(tag_part).eq(tag.bytes())
-                    && percent_decode_str(asset_part).eq(asset.bytes())
-            })
+        && percent_decode_str(tag_part).eq(tag.bytes())
+        && percent_decode_str(asset_part).eq(asset.bytes()))
+    .then_some(repository)
 }
 
 fn read_page(

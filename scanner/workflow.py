@@ -57,6 +57,9 @@ def check_fixture(case, code, report):
         assert "[link](www.example.invalid)" not in report
     elif case == "clean":
         assert "### Flags\nNone." in report
+    elif case == "native-template":
+        assert "### Hard failures\nNone." in report
+        assert "### Scan incomplete" not in report
     elif case == "stale-lock":
         assert code == 2, f"Expected an incomplete scan (got exit {code})"
         assert "### Hard failures\nNone.\n\n### Scan incomplete\n- **scan-incomplete**:" in report

@@ -49,11 +49,45 @@ pub struct Asset {
     pub browser_download_url: String,
 }
 
+#[derive(Clone, Copy)]
+pub enum Repo<'a> {
+    Named(&'a RepositoryName),
+    Registered(RepositoryId),
+}
+
+impl Repo<'_> {
+    fn endpoint(self) -> String {
+        match self {
+            Self::Named(name) => format!("repos/{}", name.as_str()),
+            Self::Registered(id) => format!("repositories/{}", id.get()),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ReleaseBranches {
+    pub open: BTreeSet<String>,
+    pub handled: BTreeSet<String>,
+}
+
 pub trait GitHub {
-    fn repository(&self, id: RepositoryId) -> Result<Repository, String>;
-    fn releases(&self, repository: &RepositoryName) -> Result<Vec<Release>, String>;
-    fn open_branches(&self) -> Result<BTreeSet<String>, String>;
-    fn tag_commit(&self, repository: &RepositoryName, tag: &str) -> Result<String, String>;
+    fn repository(&self, repo: Repo<'_>) -> Result<Repository, String>;
+    fn releases(&self, repo: Repo<'_>) -> Result<Vec<Release>, String>;
+    fn release_branches(&self) -> Result<ReleaseBranches, String>;
+    fn tag_commit(&self, repo: Repo<'_>, tag: &str) -> Result<String, String>;
+
+    fn download_release(&self, url: &str, dest: &Path, limit: u64) -> Result<(), String> {
+        download(url, dest, limit)
+    }
+
+    fn verify_attestation(
+        &self,
+        check: Attestation<'_>,
+        file: &Path,
+        bundle: &Path,
+    ) -> Result<SignerWorkflowRef, Observation> {
+        check.verify(file, bundle)
+    }
 }
 
 pub struct Cli<'a> {
@@ -61,21 +95,24 @@ pub struct Cli<'a> {
 }
 
 impl GitHub for Cli<'_> {
-    fn repository(&self, id: RepositoryId) -> Result<Repository, String> {
-        api(&format!("repositories/{}", id.get()))
+    fn repository(&self, repo: Repo<'_>) -> Result<Repository, String> {
+        api(&repo.endpoint())
     }
 
-    fn releases(&self, repository: &RepositoryName) -> Result<Vec<Release>, String> {
-        pages(&format!(
-            "repos/{}/releases?per_page=100",
-            repository.as_str()
-        ))
+    fn releases(&self, repo: Repo<'_>) -> Result<Vec<Release>, String> {
+        pages(&format!("{}/releases?per_page=100", repo.endpoint()))
     }
 
-    fn open_branches(&self) -> Result<BTreeSet<String>, String> {
+    fn release_branches(&self) -> Result<ReleaseBranches, String> {
         #[derive(Deserialize)]
         struct Pull {
             head: Head,
+            state: String,
+            user: User,
+        }
+        #[derive(Deserialize)]
+        struct User {
+            login: String,
         }
         #[derive(Deserialize)]
         struct Head {
@@ -88,22 +125,29 @@ impl GitHub for Cli<'_> {
             full_name: RepositoryName,
         }
         let pulls: Vec<Pull> = pages(&format!(
-            "repos/{}/pulls?state=open&base=main&per_page=100",
+            "repos/{}/pulls?state=all&per_page=100",
             self.registry.as_str()
         ))?;
-        Ok(pulls
-            .into_iter()
-            .filter(|p| {
-                p.head
-                    .repo
-                    .as_ref()
-                    .is_some_and(|r| r.full_name == *self.registry)
-            })
-            .map(|p| p.head.branch)
-            .collect())
+        let mut branches = ReleaseBranches::default();
+        for p in pulls {
+            if p.user.login == "github-actions[bot]"
+                && p.head.branch.starts_with("release/")
+                && p.head.repo.as_ref().is_some_and(|r| {
+                    r.full_name
+                        .as_str()
+                        .eq_ignore_ascii_case(self.registry.as_str())
+                })
+            {
+                if p.state == "open" {
+                    branches.open.insert(p.head.branch.clone());
+                }
+                branches.handled.insert(p.head.branch);
+            }
+        }
+        Ok(branches)
     }
 
-    fn tag_commit(&self, repository: &RepositoryName, tag: &str) -> Result<String, String> {
+    fn tag_commit(&self, repo: Repo<'_>, tag: &str) -> Result<String, String> {
         #[derive(Deserialize)]
         struct Commit {
             sha: String,
@@ -111,8 +155,8 @@ impl GitHub for Cli<'_> {
         // Fully qualify the ref, including when a branch has the same name. The commits
         // endpoint dereferences annotated tags to the commit the OIDC certificate names.
         let commit: Commit = api(&format!(
-            "repos/{}/commits/refs/tags/{}",
-            repository.as_str(),
+            "{}/commits/refs/tags/{}",
+            repo.endpoint(),
             encode(tag)
         ))?;
         if !sunrise_mod_package::manifest::revision(&commit.sha) {
@@ -206,6 +250,21 @@ pub fn download(url: &str, dest: &Path, limit: u64) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug)]
+pub enum Observation {
+    Unknown(String),
+    Ineligible(String),
+}
+
+impl std::fmt::Display for Observation {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown(reason) => write!(out, "release verification is unknown: {reason}"),
+            Self::Ineligible(reason) => out.write_str(reason),
+        }
+    }
+}
+
 pub struct Attestation<'a> {
     pub repository_id: RepositoryId,
     pub repository_name: &'a RepositoryName,
@@ -215,14 +274,14 @@ pub struct Attestation<'a> {
 }
 
 impl Attestation<'_> {
-    pub fn verify(&self, file: &Path, bundle: &Path) -> Result<SignerWorkflowRef, String> {
+    pub fn verify(&self, file: &Path, bundle: &Path) -> Result<SignerWorkflowRef, Observation> {
         let path = |p: &Path| {
             p.to_str()
                 .map(str::to_owned)
                 .ok_or("verification path is not UTF-8")
         };
-        let file = path(file)?;
-        let bundle = path(bundle)?;
+        let file = path(file).map_err(|error| Observation::Unknown(error.into()))?;
+        let bundle = path(bundle).map_err(|error| Observation::Unknown(error.into()))?;
         let source_ref = format!("refs/tags/{}", self.tag);
         let output = gh(&[
             "attestation",
@@ -270,11 +329,12 @@ impl Attestation<'_> {
                 "--format",
                 "json",
             ])
-        })?;
+        })
+        .map_err(Observation::Unknown)?;
         self.claims(&output)
     }
 
-    fn claims(&self, output: &[u8]) -> Result<SignerWorkflowRef, String> {
+    fn claims(&self, output: &[u8]) -> Result<SignerWorkflowRef, Observation> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Verified {
@@ -298,7 +358,7 @@ impl Attestation<'_> {
             source_repository_ref: String,
             source_repository_digest: String,
         }
-        let results: Vec<Verified> = decode(output)?;
+        let results: Vec<Verified> = decode(output).map_err(Observation::Unknown)?;
         let mut refs = BTreeSet::new();
         for result in results {
             let cert = result.verification_result.signature.certificate;
@@ -320,11 +380,11 @@ impl Attestation<'_> {
             }
         }
         if refs.len() != 1 {
-            return Err("expected one verified signer workflow at a release-v<number> tag for the registered repository ID and release ref/commit".into());
+            return Err(Observation::Ineligible("expected one verified signer workflow at a release-v<number> tag for the registered repository ID and release ref/commit".into()));
         }
         refs.into_iter()
             .next()
-            .ok_or_else(|| "no verified signer workflow".into())
+            .ok_or_else(|| Observation::Ineligible("no verified signer workflow".into()))
     }
 }
 #[cfg(test)]
