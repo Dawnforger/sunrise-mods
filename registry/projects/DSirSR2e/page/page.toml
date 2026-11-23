@@ -1,0 +1,31 @@
+name = "YUNG's Better End Island"
+summary = "The structure templates of YUNG's redesigned End island arena, for placing in the End."
+description = """
+The structure templates of YUNG's redesigned End island arena, for placing in the End.
+
+What it adds:
+
+- The 41 structure templates of the redesigned End arena (the central tower, the pillars and their cages), placeable with `/place template betterendisland:<name>`.
+- The dragon-immune block tag for the arena's blocks, and the mod's strings.
+
+Differences from the original:
+
+- The End is not rebuilt on its own: the original replaces the spawn platform, the pillars, the exit portal and the gateways through Java code, and this port carries only the templates.
+
+A port of YUNG's Better End Island by YUNGNICKYOUNG and Acarii, under the LGPL v3.0 only.
+"""
+authors = [
+    "YUNGNICKYOUNG",
+    "Acarii",
+]
+license = "LGPL-3.0-only"
+homepage = "https://github.com/arismoko/yungs_better_end_island"
+icon = "icon.png"
+categories = [
+    "worldgen",
+    "decoration",
+]
+
+[[screenshots]]
+path = "tower-and-pillars.png"
+caption = "The arena tower and two guarded pillars placed in the End."
