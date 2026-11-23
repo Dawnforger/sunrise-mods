@@ -7,7 +7,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -102,30 +101,27 @@ class Publish(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "LIVE_V2_NOT_DEPLOYED"):
                 live.confirm_live(deployed, KEY, self.verifier, lambda _seconds: None)
 
-    def test_old_main_commit_cannot_sign_or_deploy(self):
+    def test_a_commit_publishes_unless_it_left_main_or_is_older_than_the_deployed_one(self):
         workflow = (REPO / ".github/workflows/publish.yml").read_text()
-        old_sha, current_sha = "a" * 40, "b" * 40
-        gh = self.root / "gh"
-        gh.write_text("#!/bin/sh\n"
-                      "[ \"$1\" = api ] && [ \"$2\" = repos/example/mods/git/ref/heads/main ] || exit 2\n"
-                      "printf '%s\\n' \"$CURRENT_SHA\"\n")
-        gh.chmod(0o755)
         for job in ("sign", "deploy"):
-            with self.subTest(job=job):
-                section = workflow.split(f"\n  {job}:\n", 1)[1]
-                first = section.split("    steps:\n", 1)[1]
-                self.assertTrue(first.startswith("      - name: Require the current main tip\n"))
-                block = first.split("        run: |\n", 1)[1].split("\n      - ", 1)[0]
-                command = textwrap.dedent(block)
-                env = {**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}",
-                       "GITHUB_REPOSITORY": "example/mods", "GITHUB_REF": "refs/heads/main",
-                       "CURRENT_SHA": current_sha, "GITHUB_SHA": old_sha}
-                stale = subprocess.run(["bash", "-e", "-c", command], env=env, capture_output=True)
-                self.assertEqual(stale.returncode, 1, stale.stderr)
-                self.assertIn(b"current main tip", stale.stdout)
-                env["GITHUB_SHA"] = current_sha
-                current = subprocess.run(["bash", "-e", "-c", command], env=env, capture_output=True)
-                self.assertEqual(current.returncode, 0, current.stderr)
+            self.assertIn('live.py --publishable "$GITHUB_SHA"', workflow.split(f"\n  {job}:\n", 1)[1].split("\n\n", 1)[0])
+        env, api = self.deployed_api(assembly_attempts=())
+        deployed, merged, tip = "c" * 40, "a" * 40, "b" * 40
+
+        def publishable(sha, to_main, from_deployed):
+            compare = {f"compare/{sha}...main": {"status": to_main},
+                       f"compare/{deployed}...{sha}": {"status": from_deployed}}
+            with patch.dict(os.environ, env), patch.object(live, "gh_api", side_effect={**api, **compare}.__getitem__):
+                live.require_publishable(sha)
+
+        # Another pull request merged while this run worked: main moved on, and this commit still publishes.
+        publishable(merged, "ahead", "ahead")
+        publishable(tip, "identical", "ahead")
+        publishable(deployed, "ahead", "identical")
+        with self.assertRaisesRegex(ValueError, "older than the deployed one"):
+            publishable(merged, "ahead", "behind")
+        with self.assertRaisesRegex(ValueError, "not on main"):
+            publishable(merged, "diverged", "ahead")
 
     def test_deploy_retry_refuses_an_older_signed_candidate(self):
         candidate = self.snapshot(self.root / "candidate", "older")

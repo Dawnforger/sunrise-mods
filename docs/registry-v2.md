@@ -263,7 +263,8 @@ a reader applies `revoked` and each member's `fits` as it does for a project on 
 - `registry-bot verify-index <index> <sig> --key <pub>` checks the exact bytes and the index schema.
 
 The publish workflow uses the current UTC epoch second as the next serial. Signing and deployment
-both require the current tip of `main`. Immediately before publishing, deployment compares the
+both require a commit of `main` that is not older than the deployed one, so a merge during a publish
+does not stop it and a rerun of an old publish cannot bring back old content under a new serial. Immediately before publishing, deployment compares the
 candidate's signed serial with the verified live index and the snapshot used by the last successful
 Pages deployment. A valid live response can lag that deployment, so it replaces a missing or
 unverifiable snapshot from a keyed deployment only when its serial and index digest are exactly

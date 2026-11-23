@@ -139,24 +139,25 @@ jobs:
     runs-on: ubuntu-latest
     environment: registry-signing
     permissions:
+      actions: read
       contents: read
+      deployments: read
     outputs:
       signed: ${{ steps.sign.outputs.name }}
     steps:
-      - name: Require the current main tip
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tip=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          if [[ "$GITHUB_REF" != refs/heads/main || "$GITHUB_SHA" != "$tip" ]]; then
-            echo 'Refusing to publish a commit other than the current main tip.'
-            exit 1
-          fi
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-          sparse-checkout: registry/index-key.pub
+          sparse-checkout: |
+            .github/registry-v2
+            registry/index-key.pub
           sparse-checkout-cone-mode: false
+      # A merge while this run works does not stop it: the run publishes its own commit and the
+      # queued run for the newer commit publishes after it.
+      - name: Require a commit of main that is not older than the deployed one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .github/registry-v2/live.py --publishable "$GITHUB_SHA"
       - name: Install minisign for signing only
         run: |
           sudo apt-get update
@@ -295,15 +296,6 @@ jobs:
       attempt: ${{ github.run_attempt }}
       record: ${{ steps.guard.outputs.record }}
     steps:
-      - name: Require the current main tip
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tip=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          if [[ "$GITHUB_REF" != refs/heads/main || "$GITHUB_SHA" != "$tip" ]]; then
-            echo 'Refusing to publish a commit other than the current main tip.'
-            exit 1
-          fi
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -313,6 +305,12 @@ jobs:
             bot/verifier
             registry/index-key.pub
           sparse-checkout-cone-mode: false
+      # A merge while this run works does not stop it: the run publishes its own commit and the
+      # queued run for the newer commit publishes after it.
+      - name: Require a commit of main that is not older than the deployed one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .github/registry-v2/live.py --publishable "$GITHUB_SHA"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         if: needs.assemble.outputs.snapshot != ''
         with:
@@ -333,9 +331,8 @@ jobs:
             python3 -I .github/registry-v2/live.py --bot "$RUNNER_TEMP/index-verifier/release/registry-bot" \
               --guard-deploy deployed-candidate "${args[@]}"
           fi
-          # The verification can span network requests. Do not deploy a commit that stopped being main in the meantime.
-          tip=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          [[ "$GITHUB_SHA" == "$tip" ]]
+          # The verification can span network requests. Do not deploy a commit that left main in the meantime.
+          python3 -I .github/registry-v2/live.py --publishable "$GITHUB_SHA"
       - id: deploy
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
         with:
