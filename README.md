@@ -11,7 +11,7 @@ It is not live yet; the current registry and the instructions below are unchange
    mod, `cargo sunrise-mod release setup` writes it without tagging a release. Commit and push these
    files before submitting.
 2. **Register once.** Open a pull request on this repository that adds your public repository to
-   [`registry/watched.toml`](registry/watched.toml) and one `registry/projects/<project ID>/project.toml`
+   `registry/repositories/<repository ID>.toml` and one `registry/projects/<project ID>/project.toml`
    for each package, as [the reference](docs/registry-v2.md) describes. Use GitHub's numeric repository
    ID (`https://api.github.com/repos/<owner>/<name>`, field `id`) and pick a new project ID of eight
    characters from `0-9`, `A-Z` and `a-z`. That ID is permanent; the project appears in Discover after
@@ -25,8 +25,8 @@ It is not live yet; the current registry and the instructions below are unchange
 
 Things to get right, since each one otherwise costs a round trip:
 
-- **Several mods, one pull request.** Every registration edits `registry/watched.toml`, so separate
-  pull requests conflict with each other. Register all your repositories and packages in one.
+- **Several packages from one repository, one pull request.** They share that repository's file, so
+  separate pull requests for them conflict. Different repositories never do.
 - **The repository ID is your repository's own.** A fork has a different ID from the repository it
   was forked from. The watcher follows the ID, not the name.
 - **The slug and the project ID are new.** The check refuses a slug or project ID another project has.

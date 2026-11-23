@@ -8,7 +8,8 @@ use serde_json::Value;
 use tempfile::TempDir;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-const WATCHED: &str = "registry/watched.toml";
+const REPOSITORY: &str = "registry/repositories/123456789.toml";
+const REPOSITORY_2: &str = "registry/repositories/987654321.toml";
 const WORKFLOW: &str = "registry/release-workflow.toml";
 const CATEGORIES: &str = "registry/categories.toml";
 const REVOKED: &str = "registry/revoked.toml";
@@ -123,22 +124,15 @@ macro_rules! change {
 }
 
 change!(
-    unknown_watched_field,
-    WATCHED,
-    "[[repository]]",
-    "extra = true\n[[repository]]",
-    "unknown field"
-);
-change!(
     unknown_repository_field,
-    WATCHED,
+    REPOSITORY,
     "name =",
     "extra = true\nname =",
     "unknown field"
 );
 change!(
     unknown_package_field,
-    WATCHED,
+    REPOSITORY,
     "path = \".\"",
     "extra = true\npath = \".\"",
     "unknown field"
@@ -266,21 +260,21 @@ change!(
 change!(bad_repo_id, PROJECT, "123456789", "0", "nonzero");
 change!(
     bad_repository_name,
-    WATCHED,
+    REPOSITORY,
     "example/wayfinder",
     "https://github.com/example/wayfinder",
     "owner/repository"
 );
 change!(
     bad_package_path,
-    WATCHED,
+    REPOSITORY_2,
     "mods/wayfinder",
     "mods/../wayfinder",
     "PackagePath"
 );
 change!(
     absolute_package_path,
-    WATCHED,
+    REPOSITORY_2,
     "mods/wayfinder",
     "/wayfinder",
     "PackagePath"
@@ -429,7 +423,12 @@ fn release_assets_match_github_tag_and_asset_names_even_after_rename() {
         );
     }
     let temp = checkout();
-    replace(temp.path(), WATCHED, "example/wayfinder", "example/renamed");
+    replace(
+        temp.path(),
+        REPOSITORY,
+        "example/wayfinder",
+        "example/renamed",
+    );
     assert_eq!(
         index(temp.path())["projects"][0]["repository"]["name"],
         "example/renamed"
@@ -519,23 +518,38 @@ change!(
     "HTTP(S) URL"
 );
 
+#[test]
+fn repository_file_is_named_by_its_one_decimal_id() {
+    for name in [
+        "0987654321.toml",
+        "987654321",
+        "port-collection.toml",
+        "0.toml",
+    ] {
+        let temp = checkout();
+        let renamed = format!("registry/repositories/{name}");
+        fs::rename(temp.path().join(REPOSITORY_2), temp.path().join(&renamed)).unwrap();
+        rejected(temp.path(), &renamed, "<numeric repository ID>.toml");
+    }
+}
+
 change!(
-    duplicate_repo_id,
-    WATCHED,
+    project_repository_must_be_the_file_that_lists_it,
+    PROJECT_2,
     "987654321",
     "123456789",
-    "duplicate repository ID"
+    "repository ID does not match"
 );
 change!(
     duplicate_package_path,
-    WATCHED,
-    "[[repository]]\nid = 987654321\nname = \"other/port-collection\"\n\n[[repository.package]]\npath = \"mods/wayfinder\"",
-    "[[repository.package]]\npath = \".\"",
+    REPOSITORY,
+    "project = \"Ab3dE9xQ\"",
+    "project = \"Ab3dE9xQ\"\n\n[[package]]\npath = \".\"\nproject = \"Zz91kLmN\"",
     "duplicate package path"
 );
 change!(
     duplicate_registered_project,
-    WATCHED,
+    REPOSITORY_2,
     "Zz91kLmN",
     "Ab3dE9xQ",
     "duplicate registered project ID"
@@ -780,17 +794,18 @@ fn category_must_apply_to_kind() {
 #[test]
 fn only_subfolder_packages_in_one_repo_collide_on_the_same_in_game_id() {
     let temp = checkout();
+    fs::remove_file(temp.path().join(REPOSITORY_2)).unwrap();
     replace(
         temp.path(),
-        WATCHED,
-        "[[repository]]\nid = 987654321\nname = \"other/port-collection\"\n\n",
-        "",
+        REPOSITORY,
+        "project = \"Ab3dE9xQ\"",
+        "project = \"Ab3dE9xQ\"\n\n[[package]]\npath = \"mods/wayfinder\"\nproject = \"Zz91kLmN\"",
     );
     replace(temp.path(), PROJECT_2, "987654321", "123456789");
     let count = index(temp.path())["projects"].as_array().unwrap().len();
     assert_eq!(count, 2);
 
-    for file in [WATCHED, PROJECT] {
+    for file in [REPOSITORY, PROJECT] {
         replace(
             temp.path(),
             file,
@@ -810,17 +825,21 @@ fn only_subfolder_packages_in_one_repo_collide_on_the_same_in_game_id() {
 }
 
 #[test]
-fn watched_project_must_have_metadata() {
+fn listed_project_must_have_metadata() {
     let temp = checkout();
     fs::remove_dir_all(temp.path().join(PROJECT).parent().unwrap()).unwrap();
-    rejected(temp.path(), WATCHED, "Ab3dE9xQ has no project.toml");
+    rejected(temp.path(), REPOSITORY, "Ab3dE9xQ has no project.toml");
 }
 
 #[test]
-fn project_must_be_watched() {
+fn project_must_be_listed_by_a_repository_file() {
     let temp = checkout();
-    fs::write(temp.path().join(WATCHED), "repository = []\n").unwrap();
-    rejected(temp.path(), PROJECT, "not registered");
+    fs::remove_file(temp.path().join(REPOSITORY)).unwrap();
+    rejected(
+        temp.path(),
+        PROJECT,
+        "not listed in a registry/repositories file",
+    );
 }
 
 #[test]
@@ -943,10 +962,10 @@ fn symlink_toml_is_not_followed() {
     use std::os::unix::fs::symlink;
     let temp = checkout();
     let other = checkout();
-    let watched = temp.path().join(WATCHED);
-    fs::remove_file(&watched).unwrap();
-    symlink(other.path().join(WATCHED), watched).unwrap();
-    rejected(temp.path(), WATCHED, "not a symlink");
+    let repository = temp.path().join(REPOSITORY);
+    fs::remove_file(&repository).unwrap();
+    symlink(other.path().join(REPOSITORY), repository).unwrap();
+    rejected(temp.path(), REPOSITORY, "not a symlink");
 }
 
 #[cfg(unix)]

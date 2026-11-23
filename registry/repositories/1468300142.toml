@@ -1,0 +1,5 @@
+name = "arismoko/yungs_better_end_island"
+
+[[package]]
+path = "."
+project = "DSirSR2e"

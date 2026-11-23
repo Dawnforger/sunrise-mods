@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub struct Registry {
-    pub watched: Watched,
+    pub repositories: BTreeMap<RepositoryId, Repository>,
     pub release_workflow: WorkflowUse,
     pub categories: Vec<Category>,
     pub projects: BTreeMap<ProjectId, ProjectEntry>,
@@ -46,8 +46,20 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
         Some(Entry::File) => return Err(vec!["registry: expected a directory".to_owned()]),
         None => return Err(tree.finish()),
     };
-    let watched_path = root.join("watched.toml");
-    let watched = tree.toml::<Watched>(&watched_path, top.remove(OsStr::new("watched.toml")));
+    let repositories_root = root.join("repositories");
+    let mut repository_files = match top.remove(OsStr::new("repositories")) {
+        Some(Entry::Directory) => tree.list(&repositories_root),
+        _ => {
+            tree.problem(&repositories_root, "expected a repositories directory");
+            Default::default()
+        }
+    };
+    if repository_files.remove(OsStr::new(".gitkeep")) == Some(Entry::Directory) {
+        tree.problem(
+            &repositories_root.join(".gitkeep"),
+            "expected a regular file",
+        );
+    }
     let categories = tree
         .toml::<Categories>(
             &root.join("categories.toml"),
@@ -100,40 +112,42 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
             );
         }
     }
+    let mut repositories = BTreeMap::new();
+    for (name, entry) in repository_files {
+        let path = repositories_root.join(&name);
+        let Some(id) = name.to_str().and_then(RepositoryId::of_file) else {
+            tree.problem(&path, "expected a file named <numeric repository ID>.toml");
+            continue;
+        };
+        if let Some(repository) = tree.toml::<Repository>(&path, Some(entry)) {
+            repositories.insert(id, (path, repository));
+        }
+    }
     let mut registrations = BTreeMap::new();
-    let mut repository_ids = BTreeSet::new();
-    let mut package_paths = BTreeSet::new();
-    if let Some(watched) = &watched {
-        for repo in &watched.repository {
-            if !repository_ids.insert(repo.id) {
+    for (id, (path, repo)) in &repositories {
+        let mut package_paths = BTreeSet::new();
+        for package in &repo.package {
+            if !package_paths.insert(&package.path) {
                 tree.problem(
-                    &watched_path,
-                    format!("duplicate repository ID for {}", repo.name.as_str()),
+                    path,
+                    format!(
+                        "duplicate package path in {} for project {}",
+                        repo.name.as_str(),
+                        package.project.as_str()
+                    ),
                 );
             }
-            for package in &repo.package {
-                if !package_paths.insert((repo.id, &package.path)) {
-                    tree.problem(
-                        &watched_path,
-                        format!(
-                            "duplicate package path in {} for project {}",
-                            repo.name.as_str(),
-                            package.project.as_str()
-                        ),
-                    );
-                }
-                if registrations
-                    .insert(&package.project, (repo, package))
-                    .is_some()
-                {
-                    tree.problem(
-                        &watched_path,
-                        format!(
-                            "duplicate registered project ID {}",
-                            package.project.as_str()
-                        ),
-                    );
-                }
+            if registrations
+                .insert(&package.project, (*id, path, repo, package))
+                .is_some()
+            {
+                tree.problem(
+                    path,
+                    format!(
+                        "duplicate registered project ID {}",
+                        package.project.as_str()
+                    ),
+                );
             }
         }
     }
@@ -209,12 +223,18 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
                 );
             }
             match registration {
-                Some((repo, package)) => {
-                    if repo.id != project.repository {
-                        tree.problem(&project_path, "repository ID does not match watched.toml");
+                Some((repository, _, repo, package)) => {
+                    if repository != project.repository {
+                        tree.problem(
+                            &project_path,
+                            "repository ID does not match the repository file that lists this project",
+                        );
                     }
                     if package.path != project.path {
-                        tree.problem(&project_path, "package path does not match watched.toml");
+                        tree.problem(
+                            &project_path,
+                            "package path does not match its repository file",
+                        );
                     }
                     projects.insert(
                         id,
@@ -226,18 +246,15 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
                         },
                     );
                 }
-                None if watched.is_some() => {
-                    tree.problem(&project_path, "project is not registered in watched.toml")
-                }
-                None => {}
+                None => tree.problem(
+                    &project_path,
+                    "project is not listed in a registry/repositories file",
+                ),
             }
         }
     }
-    for id in registrations.keys() {
-        tree.problem(
-            &watched_path,
-            format!("project {} has no project.toml", id.as_str()),
-        );
+    for (id, (_, path, _, _)) in &registrations {
+        tree.problem(path, format!("project {} has no project.toml", id.as_str()));
     }
     for (id, entry) in &projects {
         for release in entry.releases.values() {
@@ -302,13 +319,14 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
     if !problems.is_empty() {
         return Err(problems);
     }
-    let (Some(watched), Some(release_workflow)) = (watched, release_workflow) else {
-        return Err(vec![
-            "registry: missing watched.toml or release-workflow.toml".to_owned(),
-        ]);
+    let Some(release_workflow) = release_workflow else {
+        return Err(vec!["registry: missing release-workflow.toml".to_owned()]);
     };
     Ok(Registry {
-        watched,
+        repositories: repositories
+            .into_iter()
+            .map(|(id, (_, repository))| (id, repository))
+            .collect(),
         release_workflow: release_workflow.uses,
         categories,
         projects,

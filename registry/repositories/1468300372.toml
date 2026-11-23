@@ -1,0 +1,17 @@
+name = "arismoko/horizon-ports"
+
+[[package]]
+path = "carryon"
+project = "ZwykgDgN"
+
+[[package]]
+path = "fallingtrees"
+project = "Zk3hIjUh"
+
+[[package]]
+path = "sophisticatedcore"
+project = "1JYI3457"
+
+[[package]]
+path = "yungsbridges"
+project = "aAKT2W7M"

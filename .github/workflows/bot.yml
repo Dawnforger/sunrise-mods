@@ -54,7 +54,7 @@ jobs:
           empty="$RUNNER_TEMP/empty-registry"
           mkdir -p "$empty/registry/projects"
           cp registry/{categories,release-workflow}.toml "$empty/registry/"
-          printf 'repository = []\n' > "$empty/registry/watched.toml"
+          mkdir "$empty/registry/repositories"
           printf 'revoked = []\n' > "$empty/registry/revoked.toml"
           cargo run --locked --manifest-path bot/Cargo.toml -- watch "$empty" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/dry-watch"
           grep -Fx 'No repositories are registered.' "$RUNNER_TEMP/dry-watch/watch.md"

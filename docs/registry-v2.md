@@ -4,7 +4,7 @@
 
 V2 uses `registry/` for its source files. The launcher and site will read `v2/index.json` and
 `v2/index.json.minisig` on the existing registry site, not the TOML files. The author tool reads
-`watched.toml`, `categories.toml`, and `release-workflow.toml` from raw `main`.
+its repository's file under `repositories/`, `categories.toml`, and `release-workflow.toml` from raw `main`.
 
 ## Repository layout
 
@@ -18,13 +18,22 @@ Paths in the layout use forward slashes. They may not be absolute, contain backs
 prefixes, or contain empty, `.` or `..` segments. A package path may be exactly `.` for the root
 of the author's repository. The checker does not follow symlinks in the registry tree.
 
-### `registry/watched.toml`
+### `registry/repositories/<repository ID>.toml`
 
-The registration service records a `[[repository]]` row with the positive numeric GitHub `id`
-and current `name` (`owner/repo`). The watcher refreshes `name` on a rename; `id` is the identity.
-Each `[[repository.package]]` row gives the `path` of the folder holding `sunrise-mod.toml` and its
-permanent `project` ID. Repository IDs, paths within a repository, and project IDs are unique.
-Every package has exactly one `project.toml` and vice versa. An empty registry has `repository = []`.
+One file per registered repository, named by its positive numeric GitHub ID in plain decimal, so
+registrations of different repositories never edit the same file. The file holds the current
+`name` (`owner/repo`); the watcher refreshes it on a rename, and the ID in the file name is the
+identity. Each `[[package]]` row gives the `path` of the folder holding `sunrise-mod.toml` and its
+permanent `project` ID. Paths within a repository and project IDs are unique. Every package has
+exactly one `project.toml` and vice versa. An empty registry has an empty `repositories` folder.
+
+```toml
+name = "example/wayfinder"
+
+[[package]]
+path = "."
+project = "Ab3dE9xQ"
+```
 
 ### `registry/release-workflow.toml`
 
@@ -50,7 +59,7 @@ The registration service writes this file when the project is registered.
 | `mod` | In-game ID. Only two subfolder packages in the same repository cannot share it, because both use it in release tags and caller workflow names. A root package has its own tag and caller names. |
 | `kind` | `mod`, `native-mod`, `modpack`, `resourcepack`, `shader`, `shaderpack` or `datapack`. Pack-specific fields are not defined here. |
 | `owners` | GitHub logins allowed to release. This is not the list of page credits. |
-| `repository`, `path` | Numeric repository ID and package path, matching `watched.toml`. |
+| `repository`, `path` | Numeric repository ID and package path, matching the `repositories/` file that lists the project. |
 | `workflow` | Signer workflow path, equal to the part of `uses` before `@`. |
 | `registered` | Registration date. |
 
@@ -226,7 +235,7 @@ The [two-provider fixture](../bot/tests/fixtures/two-ports/registry/) and
 ## The watcher and release PR checks
 
 `watch.yml` polls every 30 minutes and can also be started manually on `main`. It looks up each
-repository by its numeric GitHub ID. A rename opens a separate maintenance PR for `watched.toml`;
+repository by its numeric GitHub ID. A rename opens a separate maintenance PR for that repository's file;
 it does not change project IDs or rewrite old release URLs. At registration the watcher considers
 only the newest publication, by GitHub's timestamp. If its signature cannot be determined, the
 watcher reports that and does not fall back to an older release. After an approval, only releases

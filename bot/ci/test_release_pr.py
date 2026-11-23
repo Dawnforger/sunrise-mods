@@ -70,6 +70,25 @@ class ReleasePRTests(unittest.TestCase):
         self.assertNotIn("::error", text)
         self.assertNotIn("##[", text)
 
+    def test_a_rename_refresh_only_rewrites_repository_files_already_on_main(self):
+        generated, work = self.folder / "rename", self.folder / "work"
+        row = Path("registry/repositories/123456789.toml")
+        for root, text in ((generated, 'name = "example/renamed"\n'), (work, 'name = "example/wayfinder"\n')):
+            (root / row).parent.mkdir(parents=True)
+            (root / row).write_text(text)
+        with patch.object(release, "git") as git:
+            release.install_tree(generated, work, "registry/refresh-repository-names")
+        self.assertEqual((work / row).read_text(), 'name = "example/renamed"\n')
+        git.assert_called_once_with("add", "--", row, cwd=work)
+        for stray in ("registry/repositories/987654321.toml", "registry/repositories/0123.toml",
+                      "registry/projects/Ab3dE9xQ/project.toml"):
+            with self.subTest(stray=stray):
+                (generated / stray).parent.mkdir(parents=True, exist_ok=True)
+                (generated / stray).write_text("")
+                with self.assertRaisesRegex(ValueError, "not a set of registered repository files"):
+                    release.install_tree(generated, work, "registry/refresh-repository-names")
+                (generated / stray).unlink()
+
     def test_a_maintenance_pr_is_sent_to_the_non_release_classifier_once(self):
         rename = pull("registry/refresh-repository-names", number=12)
         summary = self.folder / "summary.md"
