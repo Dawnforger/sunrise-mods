@@ -1,0 +1,19 @@
+version = "1.2.0"
+kind = "mod"
+tag = "v1.2.0"
+published = "2026-11-23T18:58:16Z"
+sunrise = "nightly-2026-11-20-9425651"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/macaws_trapdoors/releases/download/v1.2.0/mcwtrpdoors-1.2.0.smod"
+size = 776008
+sha256 = "ebeb2d556d9306cc0d81f76ee231bbc1173859e83c25265335464bcb2dbdc831"
+attestation = "https://github.com/arismoko/macaws_trapdoors/releases/download/v1.2.0/mcwtrpdoors-1.2.0.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/macaws_trapdoors/releases/download/v1.2.0/mcwtrpdoors-1.2.0.page.tar"
+size = 720384
+sha256 = "f036556eec97dd36570f807b785e7dab724ce96f1edeb860d3c38e21678a6499"
+attestation = "https://github.com/arismoko/macaws_trapdoors/releases/download/v1.2.0/mcwtrpdoors-1.2.0.page.tar.sigstore.json"
