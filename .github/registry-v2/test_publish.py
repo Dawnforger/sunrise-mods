@@ -227,9 +227,49 @@ class Publish(unittest.TestCase):
 
         with (patch.dict(os.environ, env), patch.object(live, "gh_api", side_effect=api.__getitem__),
               self.live_from(stale), patch.object(subprocess, "run", side_effect=run_with_missing_snapshot)):
-            with self.assertRaisesRegex(ValueError, "NO_AUTHENTICATED_V2_SNAPSHOT"):
+            with self.assertRaisesRegex(ValueError, "V2_DEPLOYED_SERIAL_UNKNOWN.*both unavailable"):
                 live.guard_deploy(stale, KEY, self.verifier, carried=True)
-        self.assertEqual(downloads, ["v2-snapshot-2"])
+            # The deployment recorded the newer catalogue, so stale Pages still cannot stand in.
+            api.update(self.record("newer"))
+            with self.assertRaisesRegex(ValueError, "V2_DEPLOYED_SERIAL_UNKNOWN.*does not serve"):
+                live.guard_deploy(stale, KEY, self.verifier, carried=True)
+        self.assertEqual(downloads, ["v2-snapshot-2", "v2-snapshot-2"])
+
+    def record(self, variant, **changes):
+        body = BODIES[variant]
+        row = {"context": "registry-v2/deployed", "state": "success", "creator": {"login": "github-actions[bot]"},
+               "target_url": "https://github.com/example/mods/actions/runs/70/attempts/2",
+               "description": f"serial={json.loads(body)['serial']} sha256={hashlib.sha256(body).hexdigest()}"}
+        unrelated = {**row, "context": "registry-v2/release-check"}
+        return {f"commits/{'c' * 40}/statuses?per_page=100&page=1": [unrelated, {**row, **changes}],
+                f"commits/{'c' * 40}/statuses?per_page=100&page=2": []}
+
+    def test_matching_live_site_stands_in_for_an_unavailable_deployment_snapshot(self):
+        published = self.snapshot(self.root / "published", "older")
+        newer = self.snapshot(self.root / "newer", "newer")
+        env, api = self.deployed_api(assembly_attempts=(2,))
+        run = subprocess.run
+
+        def run_without_artifacts(command, **kwargs):
+            if command[:3] == ["gh", "run", "download"]:
+                raise subprocess.CalledProcessError(1, command)  # Expired, or the Actions API failed.
+            return run(command, **kwargs)
+
+        def guard(candidate, carried, **changes):
+            api.update(self.record("older", **changes))
+            with (patch.dict(os.environ, env), patch.object(live, "gh_api", side_effect=api.__getitem__),
+                  self.live_from(published), patch.object(subprocess, "run", side_effect=run_without_artifacts)):
+                return live.guard_deploy(candidate, KEY, self.verifier, carried=carried)
+
+        self.assertEqual(guard(newer, False).serial, 42)
+        self.assertEqual(guard(published, True).serial, 41)  # A legacy-only update carries the same index.
+        with self.assertRaisesRegex(ValueError, "old or different equal serial"):
+            guard(published, False)
+        for changes in ({"target_url": "https://github.com/example/mods/actions/runs/70/attempts/1"},
+                        {"state": "pending"}, {"creator": {"login": "someone"}},
+                        {"description": "serial=041 sha256=" + "0" * 64}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "V2_DEPLOYED_SERIAL_UNKNOWN"):
+                guard(newer, False, **changes)
 
     def test_first_keyed_deploy_can_follow_a_confirmed_legacy_only_deploy(self):
         candidate = self.snapshot(self.root / "candidate", "older")

@@ -285,11 +285,15 @@ jobs:
       actions: read
       contents: read
       deployments: read
+      statuses: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}index.json
+    outputs:
+      attempt: ${{ github.run_attempt }}
+      record: ${{ steps.guard.outputs.record }}
     steps:
       - name: Require the current main tip
         env:
@@ -315,6 +319,7 @@ jobs:
           name: ${{ needs.assemble.outputs.snapshot }}
           path: deployed-candidate
       - name: Check the signed serial against the verified live deployment
+        id: guard
         env:
           GH_TOKEN: ${{ github.token }}
           CARRIED: ${{ needs.assemble.outputs.carried }}
@@ -335,6 +340,24 @@ jobs:
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
         with:
           artifact_name: ${{ needs.assemble.outputs.pages_artifact }}
+
+  # The next deploy's guard reads this when the bulk snapshot artifact cannot be fetched.
+  record-deployment:
+    needs: deploy
+    if: always() && !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.record != ''
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Record the deployed serial and index digest on the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECORD: ${{ needs.deploy.outputs.record }}
+          DEPLOY_ATTEMPT: ${{ needs.deploy.outputs.attempt }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -X POST -f state=success \
+            -f context=registry-v2/deployed -f description="$RECORD" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$DEPLOY_ATTEMPT"
 
   report-v2-failure:
     needs: [assemble, deploy]

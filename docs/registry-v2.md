@@ -207,13 +207,15 @@ page bundle. The launcher does not fetch the bundle to show the page or install 
 The publish workflow uses the current UTC epoch second as the next serial. Signing and deployment
 both require the current tip of `main`. Immediately before publishing, deployment compares the
 candidate's signed serial with the verified live index and the snapshot used by the last successful
-Pages deployment. A valid live response can lag that deployment, so it cannot replace a missing
-or unverifiable snapshot from a keyed deployment. Assembly verifies the index and images and
+Pages deployment. A valid live response can lag that deployment, so it replaces a missing or
+unverifiable snapshot from a keyed deployment only when its serial and index digest are exactly
+what that deployment recorded: after each keyed deploy, the workflow writes both in a
+`registry-v2/deployed` commit status that names the run. Assembly verifies the index and images and
 checks that the Pages archive will include them. If the new catalogue fails, the workflow uses the
 last complete signed snapshot, from Pages first or from the last successful deployment's retained
 artifact. It deploys the legacy update and reports the v2 failure. If neither source can be
-recovered, or the deployed serial cannot be authenticated, it reports `NO_AUTHENTICATED_V2_SNAPSHOT`
-and leaves the entire site unchanged. Without a committed public key, the publish does not contact
+recovered it reports `NO_AUTHENTICATED_V2_SNAPSHOT`, and if the deployed serial cannot be
+established it reports `V2_DEPLOYED_SERIAL_UNKNOWN`; either way the entire site is left unchanged. Without a committed public key, the publish does not contact
 the v2 services and deploys only the legacy site. A separate
 scheduled workflow detects new offered builds and requests a publish on `main` without
 committing generated files.

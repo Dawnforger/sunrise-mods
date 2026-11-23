@@ -22,6 +22,10 @@ ICON_LIMIT = 256 << 10  # sunrise_mod_package::icon::MAX_ICON.
 SCREENSHOT_LIMIT = 5 << 20  # sunrise_mod_package::page::MAX_SCREENSHOT_BYTES.
 PROJECT = re.compile(r"[0-9A-Za-z]{8}")  # Same Modrinth ID rule as registry-bot.
 IMAGE = re.compile(r"([0-9a-f]{64})\.(png|jpg)")
+# The deploy's own record of what it published, as a commit status: unlike the bulk
+# snapshot artifact it does not expire and needs no artifact download.
+RECORD_CONTEXT = "registry-v2/deployed"
+RECORD = re.compile(r"serial=(0|[1-9][0-9]{0,19}) sha256=([0-9a-f]{64})")
 ERRORS = (KeyError, OSError, TypeError, ValueError, tarfile.TarError, subprocess.CalledProcessError)
 
 
@@ -179,6 +183,26 @@ def read_deployed(root, key, bot):
     return index
 
 
+def deployed_record():
+    deployed = last_deployed()
+    if deployed is None:
+        raise ValueError("no successful Pages deployment")
+    run_id, attempt, sha = deployed
+    run = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run_id}/attempts/{attempt}"
+    for page in itertools.count(1):
+        rows = gh_api(f"commits/{sha}/statuses?per_page=100&page={page}")
+        if not rows:
+            raise ValueError("the last Pages deployment recorded no serial")
+        for row in rows:
+            if (row["context"], row["target_url"], row["state"]) == (RECORD_CONTEXT, run, "success"):
+                if row["creator"]["login"] != "github-actions[bot]":
+                    raise ValueError("the deployment record was not written by the publish workflow")
+                record = RECORD.fullmatch(row["description"])
+                if not record:
+                    raise ValueError("the deployment record is malformed")
+                return int(record[1]), record[2]
+
+
 def check_archive(root, index):
     # Same GNU tar flags as upload-pages-artifact v3.0.1 at 56afc609. List its
     # output before upload, while we can still choose the recovery snapshot.
@@ -254,7 +278,7 @@ def assemble(site, candidate, pages, key, bot):
 
 def guard_deploy(root, key, bot, carried):
     if not key.is_file():
-        return
+        return None
     candidate = verify(root, key, bot)
     check_images(root, candidate)
     with tempfile.TemporaryDirectory(dir=root.parent) as work:
@@ -273,11 +297,20 @@ def guard_deploy(root, key, bot, carried):
             deployed = read_deployed(Path(work) / "deployed", key, bot)
         except ERRORS as error:
             print(f"registry v2: unable to verify the stored deployment snapshot: {reason(error)}")
-            # A valid CDN response can still be stale. Only a confirmed legacy-only
-            # (or absent) deployment can dispense with the stored serial.
-            raise ValueError("NO_AUTHENTICATED_V2_SNAPSHOT: cannot verify the deployed serial") from error
+            # A valid CDN response can still be stale, so the live index stands in for the
+            # snapshot only when it is exactly what the last deployment recorded. Otherwise
+            # only a confirmed legacy-only (or absent) deployment can dispense with the serial.
+            try:
+                record = deployed_record()
+            except ERRORS as missing:
+                raise ValueError("V2_DEPLOYED_SERIAL_UNKNOWN: the last deployment's snapshot and record "
+                                 "are both unavailable") from missing
+            if live is None or (live.serial, hashlib.sha256(live.body).hexdigest()) != record:
+                raise ValueError("V2_DEPLOYED_SERIAL_UNKNOWN: the live site does not serve the recorded "
+                                 "deployment and its snapshot is unavailable") from error
+            deployed = live
         if live is None and deployed is None and (live_unavailable or carried):
-            raise ValueError("NO_AUTHENTICATED_V2_SNAPSHOT: cannot verify the deployed serial")
+            raise ValueError("V2_DEPLOYED_SERIAL_UNKNOWN: neither the live site nor a deployment gives a serial")
         for previous in (live, deployed):
             if previous is None:
                 continue
@@ -286,6 +319,7 @@ def guard_deploy(root, key, bot, carried):
             if carried and candidate.serial == previous.serial and candidate.body == previous.body:
                 continue
             raise ValueError("refusing to replace the deployed index with an old or different equal serial")
+    return candidate
 
 
 def main():
@@ -312,7 +346,11 @@ def main():
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                 print(f"carried={str(carried).lower()}", file=output)
         else:
-            guard_deploy(args.guard_deploy, args.key, args.bot, args.carried)
+            candidate = guard_deploy(args.guard_deploy, args.key, args.bot, args.carried)
+            if candidate is not None:
+                with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                    digest = hashlib.sha256(candidate.body).hexdigest()
+                    print(f"record=serial={candidate.serial} sha256={digest}", file=output)
     except ERRORS as error:
         parser.exit(1, f"registry v2: {reason(error)}\n")
 
