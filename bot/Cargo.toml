@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+caseless = "0.2"
 minisign-verify = "0.3"
 percent-encoding = "2.3"
 semver = { version = "1", features = ["serde"] }
