@@ -1,7 +1,6 @@
 name: Register a repository
 description: Ask for your mod's repository to be added to the registry, so its releases are picked up
 title: "Register <owner>/<repository>"
-labels: [registration]
 body:
   - type: markdown
     attributes:
