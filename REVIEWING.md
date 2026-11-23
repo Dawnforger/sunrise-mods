@@ -46,6 +46,10 @@ reviewer who approves is responsible for that approval. Bugs, style, copyright, 
 provenance are out of scope. Send ordinary bugs or suggestions to the author's repository as
 friendly issues, never as a reason to block the release.
 
+To refuse a release, close its PR and keep its branch. Deleting the branch makes the watcher open the
+same release again; do that only to have a PR generated again
+([Refusing or withdrawing a release](docs/registry-v2.md#refusing-or-withdrawing-a-release)).
+
 For a takedown after merge, use [`registry/revoked.toml`](registry/revoked.toml):
 record the project, reason and date, with the release's SHA-256 for a single file or without it to
 take down the whole project.

@@ -233,7 +233,10 @@ def publish(generated):
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
         if live == base:
             seen = [pr for pr in rows(pulls + "all") if own_bot_pr(pr)]
-            handled = {pr["head"]["ref"] for pr in seen if own_release(pr)}
+            kept = {ref["ref"].removeprefix("refs/heads/") for ref in rows("git/matching-refs/heads/release/")}
+            # A closed, unmerged PR whose branch was deleted was withdrawn, not refused.
+            handled = {pr["head"]["ref"] for pr in seen
+                       if own_release(pr) and (pr["state"] == "open" or pr["merged_at"] or pr["head"]["ref"] in kept)}
             open_branches = {pr["head"]["ref"] for pr in seen if pr["state"] == "open"}
             rename = "registry/refresh-repository-names"
             if (generated / "rename").exists() and rename not in open_branches:

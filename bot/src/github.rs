@@ -70,6 +70,20 @@ pub struct ReleaseBranches {
     pub handled: BTreeSet<String>,
 }
 
+impl ReleaseBranches {
+    /// Records one of the bot's release PRs. An open or merged PR handles its version, and so does a
+    /// closed, unmerged one while its branch still exists: that release was refused. One whose branch
+    /// was deleted was withdrawn, and its release may be opened again.
+    fn record(&mut self, branch: String, open: bool, merged: bool, branch_exists: bool) {
+        if open {
+            self.open.insert(branch.clone());
+        }
+        if open || merged || branch_exists {
+            self.handled.insert(branch);
+        }
+    }
+}
+
 pub trait GitHub {
     fn repository(&self, repo: Repo<'_>) -> Result<Repository, String>;
     fn releases(&self, repo: Repo<'_>) -> Result<Vec<Release>, String>;
@@ -108,7 +122,13 @@ impl GitHub for Cli<'_> {
         struct Pull {
             head: Head,
             state: String,
+            merged_at: Option<String>,
             user: User,
+        }
+        #[derive(Deserialize)]
+        struct Ref {
+            #[serde(rename = "ref")]
+            name: String,
         }
         #[derive(Deserialize)]
         struct User {
@@ -128,6 +148,10 @@ impl GitHub for Cli<'_> {
             "repos/{}/pulls?state=all&per_page=100",
             self.registry.as_str()
         ))?;
+        let kept: Vec<Ref> = pages(&format!(
+            "repos/{}/git/matching-refs/heads/release/",
+            self.registry.as_str()
+        ))?;
         let mut branches = ReleaseBranches::default();
         for p in pulls {
             if p.user.login == "github-actions[bot]"
@@ -138,10 +162,15 @@ impl GitHub for Cli<'_> {
                         .eq_ignore_ascii_case(self.registry.as_str())
                 })
             {
-                if p.state == "open" {
-                    branches.open.insert(p.head.branch.clone());
-                }
-                branches.handled.insert(p.head.branch);
+                let exists = kept
+                    .iter()
+                    .any(|r| r.name.strip_prefix("refs/heads/") == Some(&*p.head.branch));
+                branches.record(
+                    p.head.branch,
+                    p.state == "open",
+                    p.merged_at.is_some(),
+                    exists,
+                );
             }
         }
         Ok(branches)
@@ -438,5 +467,26 @@ mod tests {
         moving["buildSignerURI"] = json!(moving_uri);
         moving["subjectAlternativeName"] = json!(moving_uri);
         assert!(check.claims(verified(moving).as_bytes()).is_err());
+    }
+
+    #[test]
+    fn a_closed_release_pr_handles_its_version_only_while_its_branch_exists() {
+        let mut branches = ReleaseBranches::default();
+        branches.record("release/Ab3dE9xQ/1.0.0".into(), true, false, true);
+        branches.record("release/Ab3dE9xQ/0.9.0".into(), false, true, false);
+        branches.record("release/Zz91kLmN/1.0.0".into(), false, false, true);
+        branches.record("release/Zz91kLmN/1.1.0".into(), false, false, false);
+        assert_eq!(
+            branches.open,
+            BTreeSet::from(["release/Ab3dE9xQ/1.0.0".to_owned()])
+        );
+        assert_eq!(
+            branches.handled,
+            BTreeSet::from([
+                "release/Ab3dE9xQ/0.9.0".to_owned(),
+                "release/Ab3dE9xQ/1.0.0".to_owned(),
+                "release/Zz91kLmN/1.0.0".to_owned(),
+            ])
+        );
     }
 }
