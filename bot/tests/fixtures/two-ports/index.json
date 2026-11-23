@@ -89,6 +89,7 @@
           "dependencies": [
             {
               "mod": "map_markers",
+              "version": ">=0.3, <2",
               "project": null,
               "required": false
             }
@@ -144,6 +145,7 @@
           "dependencies": [
             {
               "mod": "wayfinder",
+              "version": "^1.2",
               "project": "Ab3dE9xQ",
               "required": false
             }

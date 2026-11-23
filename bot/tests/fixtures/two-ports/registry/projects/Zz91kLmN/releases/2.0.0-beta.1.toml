@@ -18,5 +18,6 @@ attestation = "https://github.com/other/port-collection/releases/download/wayfin
 
 [[dependencies]]
 mod = "wayfinder"
+version = "^1.2"
 project = "Ab3dE9xQ"
 required = false

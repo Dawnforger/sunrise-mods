@@ -127,10 +127,12 @@ pub fn read(
         .dependencies
         .iter()
         .map(|(id, rule)| {
+            let details = rule.details();
             Ok(Dependency {
                 mod_id: ModId::parse(id.clone())?,
+                version: details.version,
                 project: None,
-                required: !rule.details().optional,
+                required: !details.optional,
             })
         })
         .collect::<Result<_, &str>>()?;

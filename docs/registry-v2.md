@@ -77,7 +77,7 @@ takedown. The checker checks a checkout, not the history of that file.
 | `workflow` | Exact signer workflow ref recorded by the attestation: the project's workflow path followed by `@refs/tags/release-v<number>`. Existing releases keep their ref when `release-workflow.toml` selects a new tag. |
 | `[file]` | The `.smod` asset. Native mods ship source and a lockfile, not a binary. |
 | `[page]` | The separate page bundle. It is not part of the install or the published index. |
-| `[[dependencies]]` | Optional list. Each entry names a `mod` slot and whether it is `required`. An optional `project` pins a specific registered provider of that in-game ID. |
+| `[[dependencies]]` | Optional list. Each entry names a `mod` slot, the `version` requirement on its provider (semver, as written in the mod's manifest), and whether it is `required`. An optional `project` pins a specific registered provider of that in-game ID. |
 
 Both asset tables give the HTTPS `url`, `size` in bytes, `sha256` (64 lowercase hexadecimal
 characters), and HTTPS `attestation` URL. Both URLs use
@@ -175,8 +175,9 @@ bare workflow path. `fits` is an array of exact build IDs; missing IDs do not fi
 The optional `does_not_fit` array lets the publisher distinguish a known negative verdict from an
 unavailable comparison when reusing the index as its cache. Readers filter using `fits` only.
 `file` contains
-`url`, `size`, `sha256`, and `attestation`. Each dependency carries `mod`, `project` and `required`;
-a `null` `project` means the dependency does not pin a provider. The index omits the Git tag and
+`url`, `size`, `sha256`, and `attestation`. Each dependency carries `mod`, `version`, `project` and `required`.
+`version` is the semver requirement the provider's release must satisfy; a `null` `project` means
+the dependency does not pin a provider. The index omits the Git tag and
 page bundle. The launcher does not fetch the bundle to show the page or install the mod.
 
 ### Reader rules
@@ -248,6 +249,17 @@ Taking a package down never lifts a takedown in `revoked.toml`. A project has
 at most one open release PR, and an existing bot PR (including a closed, unmerged PR) makes that
 version handled. The watcher does not recreate it. Drafts never count; signed prereleases can count.
 Observation and publication failures appear in the watch summary.
+
+### Libraries
+
+A library is an ordinary project: it registers, tags and releases like any other mod, and a mod that
+needs it names it in the `[dependencies]` of its `sunrise-mod.toml`. A release whose required
+dependency has no release in the registry is refused before its build: another project on `main`
+must provide that in-game ID with a release that satisfies the `version` requirement and is not
+taken down (the project the dependency pins, when it pins one). So a library's release PR merges and
+publishes first; the dependent's check is then run again. The build takes each library from the
+signed index, checked against its attestation, and a library's crates are pinned by the library's
+own lockfile, which its own release check scanned.
 
 The read-only job downloads the `.smod`, page tar and both bundles. It checks GitHub's sizes and
 available hashes, then uses `gh attestation verify` to check each artifact against the release
