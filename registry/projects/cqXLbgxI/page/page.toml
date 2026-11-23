@@ -1,0 +1,34 @@
+name = "Macaw's Trapdoors"
+summary = "179 trapdoors in every wood plus glass and metal, with trapdoor prints."
+description = """
+179 trapdoors in every wood plus glass and metal, with trapdoor prints.
+
+A port of [Macaw's Trapdoors](https://github.com/sketchmacaw/Trapdoors) by Sketch Macaw and Peachy Macaw to [Sunrise](https://playsunrise.net) (Minecraft Java 26.3), as a content mod: the original's trapdoors, models, textures, recipes and strings, with no code.
+
+What it does:
+
+- 176 wooden trapdoors: barn, barred, beach, cottage, four-panel, glass, mystic, paper, tropical, swamp, bamboo, blossom, classic, bark, ranch and barrel, in eleven woods.
+- Three metal trapdoors that open only with redstone, like the iron trapdoor.
+- The 12 trapdoor prints, recipes, drops and creative tab.
+
+Differences from the original:
+
+- Trapdoor items burn for vanilla's trapdoor time, not the original's.
+- The prints show no crafting tooltip.
+"""
+authors = [
+    "Sketch Macaw",
+    "Peachy Macaw",
+]
+license = "MIT"
+homepage = "https://github.com/arismoko/macaws_trapdoors"
+icon = "icon.png"
+categories = ["decoration"]
+
+[[screenshots]]
+path = "display.png"
+caption = "Ten trapdoor styles, open and closed."
+
+[[screenshots]]
+path = "creative-tab.png"
+caption = "The creative tab."
