@@ -64,20 +64,20 @@ pub fn read(
         return Err(problems.join("; "));
     }
     let mut selected = BTreeSet::new();
-    let kind = if package.is_native() {
-        "native-mod"
+    let (kind, kind_name) = if package.is_native() {
+        (page::Kind::NativeMod, "native-mod")
     } else {
-        "mod"
+        (page::Kind::Mod, "mod")
     };
     for id in &page.categories {
         if !selected.insert(id)
             || !categories
                 .category
                 .iter()
-                .any(|row| row.id == *id && row.kinds.iter().any(|k| k == kind))
+                .any(|row| row.id == *id && row.kinds.contains(&kind))
         {
             return Err(format!(
-                "category {id:?} is repeated or does not apply to {kind}"
+                "category {id:?} is repeated or does not apply to {kind_name}"
             ));
         }
     }
