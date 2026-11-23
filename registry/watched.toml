@@ -1,2 +1,8 @@
 # Repositories registered for v2. Each package has its own permanent project ID.
-repository = []
+[[repository]]
+id = 1462125350
+name = "sunrise-org/sunrise-minimap"
+
+[[repository.package]]
+path = "."
+project = "lutYnPB0"
