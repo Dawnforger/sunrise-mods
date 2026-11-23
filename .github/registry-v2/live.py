@@ -179,6 +179,19 @@ def last_deployed():
             return run_id, job["run_attempt"], sha
 
 
+def require_publishable(sha):
+    # The serial is the time a run builds, so a rerun of an old publish would carry old content
+    # under a new, higher serial and bring back a release since revoked or removed. Runs do not
+    # overlap (one concurrency group), so a commit of main at or after the deployed one is in order.
+    def follows(base, head):
+        return gh_api(f"compare/{base}...{head}")["status"] in ("ahead", "identical")
+    if not follows(sha, "main"):
+        raise ValueError("refusing to publish a commit that is not on main")
+    deployed = last_deployed()
+    if deployed is not None and not follows(deployed[2], sha):
+        raise ValueError("refusing to publish a commit older than the deployed one")
+
+
 def read_deployed(root, key, bot):
     deployed = last_deployed()
     if deployed is None:
@@ -364,14 +377,20 @@ def main():
     action.add_argument("--assemble", type=Path, metavar="SITE")
     action.add_argument("--guard-deploy", type=Path, metavar="SNAPSHOT")
     action.add_argument("--confirm-live", type=Path, metavar="SNAPSHOT")
+    action.add_argument("--publishable", metavar="COMMIT",
+                        help="require a commit of main that is not older than the deployed one")
     parser.add_argument("--key", type=Path, default=Path("registry/index-key.pub"))
-    parser.add_argument("--bot", type=Path, required=True)
+    parser.add_argument("--bot", type=Path)
     parser.add_argument("--candidate", type=Path, default=Path("candidate"))
     parser.add_argument("--pages", type=Path, default=Path("v2-pages.tar"))
     parser.add_argument("--carried", action="store_true")
     args = parser.parse_args()
+    if args.publishable is None and args.bot is None:
+        parser.error("--bot is required")
     try:
-        if args.out is not None:
+        if args.publishable is not None:
+            require_publishable(args.publishable)
+        elif args.out is not None:
             if args.key.is_file():
                 with tempfile.TemporaryDirectory(dir=args.out.parent) as directory:
                     root = Path(directory) / "live"
