@@ -1,0 +1,9 @@
+id = "lutYnPB0"
+slug = "minimap"
+mod = "minimap"
+kind = "native-mod"
+owners = ["arismoko"]
+repository = 1462125350
+path = "."
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml"
+registered = "2026-11-23"
