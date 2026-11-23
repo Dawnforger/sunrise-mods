@@ -111,6 +111,37 @@ limit. The icon follows the mod package's own PNG icon rules and must have a `.p
 Apart from `page.toml`, files not named in the page are rejected. The publisher serves only the
 validated images.
 
+### `registry/collections/<collection>/`
+
+A collection is one publisher's set of mods that a player installs together, each member switched on
+or off. It is a folder named by a permanent ID of the same form as a project ID, chosen at random by
+whoever opens it; the ID never changes and may not be a project's. The folder holds
+`collection.toml` and `icon.png`, which follows the project icon rules.
+
+```toml
+id = "Qm4tZ81c"
+name = "Wayfinding"
+summary = "The map and its markers."
+description = "Optional longer text."
+
+[[member]]
+project = "Ab3dE9xQ"
+
+[[member]]
+project = "Zz91kLmN"
+default = false
+```
+
+`name` and `summary` are required. Each `[[member]]` names a registered `project`; `default` says
+whether it is selected when a player opens the collection and is `true` when omitted. A collection
+has at least two different members and at least one selected by default.
+
+**Every member belongs to one publisher.** A project's publisher is the GitHub account that owns the
+repository it is registered to. The checker refuses a collection whose members' repositories are
+owned by different accounts, so the file stores no publisher. Only that publisher curates it: a pull
+request that adds, changes or deletes a collection must be opened by a login listed in `owners` of
+every member, before and after the change, as `owners` stands on the base commit.
+
 ### `registry/fit/<project>.toml`
 
 CI generates `registry/fit/` at publish time; it is never committed. The checkout checker rejects
@@ -158,6 +189,7 @@ The top-level object contains:
 | `builds` | Array of offered `{ id, commit }` pairs. `commit` is the full SDK commit SHA. |
 | `categories` | Array of `{ id, icon, kinds }` rows, as above. |
 | `projects` | Projects with at least one release. |
+| `collections` | Collections with at least two listed members, described below. |
 | `revoked` | Takedown rows as above. A `null` `sha256` takes down the whole project. |
 
 Each project carries `id`, `slug`, `mod`, `kind`, `owners`, and `workflow` from the project record.
@@ -178,7 +210,14 @@ unavailable comparison when reusing the index as its cache. Readers filter using
 `url`, `size`, `sha256`, and `attestation`. Each dependency carries `mod`, `version`, `project` and `required`.
 `version` is the semver requirement the provider's release must satisfy; a `null` `project` means
 the dependency does not pin a provider. The index omits the Git tag and
-page bundle. The launcher does not fetch the bundle to show the page or install the mod.
+page bundle.
+
+The top-level `collections` array has one row per collection with `id`, `name`, `summary`,
+`description` (empty when the file has none), `publisher` (the account login), `icon`
+(`pages/<collection>/<sha256>.png`) and `members`, each with `project` and `default`. `members`
+lists only projects present in `projects`, in file order; a collection appears once two of its
+members are listed and one of those is selected by default. Takedowns and fit are not repeated:
+a reader applies `revoked` and each member's `fits` as it does for a project on its own. The launcher does not fetch the bundle to show the page or install the mod.
 
 ### Reader rules
 

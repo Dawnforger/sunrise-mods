@@ -1127,3 +1127,184 @@ fn committed_fit_directory_is_refused_by_checkout_checker() {
         "fit is generated during publishing and must not be committed",
     );
 }
+
+const COLLECTION: &str = "registry/collections/Cc77aaQ1/collection.toml";
+
+/// The fixture with both projects under one account and a collection of the two.
+fn collection_checkout() -> TempDir {
+    let temp = fit_checkout();
+    replace(temp.path(), REPOSITORY_2, "other/", "example/");
+    let dir = temp.path().join(COLLECTION).parent().unwrap().to_owned();
+    fs::create_dir_all(&dir).unwrap();
+    fs::copy(temp.path().join(ICON), dir.join("icon.png")).unwrap();
+    fs::write(
+        temp.path().join(COLLECTION),
+        "id = \"Cc77aaQ1\"\nname = \"Wayfinding\"\nsummary = \"Both ports.\"\n\n[[member]]\nproject = \"Ab3dE9xQ\"\n\n[[member]]\nproject = \"Zz91kLmN\"\ndefault = false\n",
+    )
+    .unwrap();
+    temp
+}
+
+macro_rules! collection_change {
+    ($name:ident, $file:expr, $old:expr, $new:expr, $expected:expr) => {
+        #[test]
+        fn $name() {
+            let temp = collection_checkout();
+            fs::remove_dir_all(temp.path().join("registry/fit")).unwrap();
+            replace(temp.path(), $file, $old, $new);
+            rejected(temp.path(), COLLECTION, $expected);
+        }
+    };
+}
+
+collection_change!(
+    collection_of_two_publishers,
+    REPOSITORY_2,
+    "example/",
+    "other/",
+    "member Zz91kLmN is published by other, not by example"
+);
+collection_change!(
+    collection_id_differs_from_directory,
+    COLLECTION,
+    "Cc77aaQ1",
+    "Cc77aaQ2",
+    "collection ID must match the directory name"
+);
+collection_change!(
+    collection_with_nothing_selected,
+    COLLECTION,
+    "project = \"Ab3dE9xQ\"",
+    "project = \"Ab3dE9xQ\"\ndefault = false",
+    "at least one member must be selected by default"
+);
+collection_change!(
+    collection_member_twice,
+    COLLECTION,
+    "Zz91kLmN",
+    "Ab3dE9xQ",
+    "duplicate member Ab3dE9xQ"
+);
+collection_change!(
+    collection_member_unregistered,
+    COLLECTION,
+    "Zz91kLmN",
+    "Nope0000",
+    "member Nope0000 is not a registered project"
+);
+collection_change!(
+    collection_of_one,
+    COLLECTION,
+    "[[member]]\nproject = \"Zz91kLmN\"\ndefault = false\n",
+    "",
+    "a collection needs at least two members"
+);
+collection_change!(
+    collection_unknown_field,
+    COLLECTION,
+    "name =",
+    "owners = []\nname =",
+    "unknown field"
+);
+
+#[test]
+fn collection_is_published_with_its_publisher_icon_and_listed_members() {
+    let temp = collection_checkout();
+    let value = index(temp.path());
+    let icon = fs::read(temp.path().join(ICON)).unwrap();
+    let path = format!(
+        "pages/Cc77aaQ1/{}.png",
+        sunrise_release_sign::sha256_hex(&icon)
+    );
+    assert_eq!(
+        value["collections"],
+        serde_json::json!([{
+            "id": "Cc77aaQ1",
+            "name": "Wayfinding",
+            "summary": "Both ports.",
+            "description": "",
+            "publisher": "example",
+            "icon": path,
+            "members": [
+                { "project": "Ab3dE9xQ", "default": true },
+                { "project": "Zz91kLmN", "default": false },
+            ],
+        }])
+    );
+    assert_eq!(
+        fs::read(temp.path().join("output").join(path)).unwrap(),
+        icon
+    );
+}
+
+#[test]
+fn collection_waits_for_two_released_members() {
+    let temp = collection_checkout();
+    fs::remove_file(temp.path().join(RELEASE)).unwrap();
+    fs::remove_file(temp.path().join(FIT)).unwrap();
+    fs::remove_dir_all(temp.path().join(PAGE).parent().unwrap()).unwrap();
+    assert_eq!(index(temp.path())["collections"], serde_json::json!([]));
+}
+
+#[test]
+fn only_an_owner_of_every_member_on_the_base_commit_changes_a_collection() {
+    let author = |base: &Path, head: &Path, login: &str| {
+        let result = run(
+            &[
+                "collection-author",
+                base.to_str().unwrap(),
+                head.to_str().unwrap(),
+                login,
+            ],
+            base,
+        );
+        (
+            result.status.success(),
+            String::from_utf8(result.stderr).unwrap(),
+        )
+    };
+    let shared = |temp: &TempDir| {
+        fs::remove_dir_all(temp.path().join("registry/fit")).unwrap();
+        replace(
+            temp.path(),
+            PROJECT_2,
+            "\"Other\"",
+            "\"Other\", \"Example\"",
+        );
+    };
+    // The base has no collection; the head adds one.
+    let base = checkout();
+    replace(base.path(), REPOSITORY_2, "other/", "example/");
+    let head = collection_checkout();
+    fs::remove_dir_all(head.path().join("registry/fit")).unwrap();
+    let (ok, error) = author(base.path(), head.path(), "example");
+    assert!(!ok);
+    assert!(
+        error.contains("lists project Zz91kLmN, which example does not own on the base commit"),
+        "{error}"
+    );
+    // Ownership granted by the same pull request does not count.
+    replace(
+        head.path(),
+        PROJECT_2,
+        "\"Other\"",
+        "\"Other\", \"Example\"",
+    );
+    assert!(!author(base.path(), head.path(), "example").0);
+    replace(
+        base.path(),
+        PROJECT_2,
+        "\"Other\"",
+        "\"Other\", \"Example\"",
+    );
+    assert!(author(base.path(), head.path(), "example").0);
+    assert!(!author(base.path(), head.path(), "stranger").0);
+    // Unchanged collections bind nobody; deleting or editing one binds like adding it.
+    let same = collection_checkout();
+    shared(&same);
+    assert!(author(head.path(), same.path(), "stranger").0);
+    assert!(!author(head.path(), base.path(), "stranger").0);
+    replace(same.path(), COLLECTION, "Both ports.", "Two ports.");
+    assert!(!author(head.path(), same.path(), "stranger").0);
+    assert!(author(head.path(), same.path(), "Example").0);
+}

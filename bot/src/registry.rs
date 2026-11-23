@@ -18,6 +18,7 @@ pub struct Registry {
     pub release_workflow: WorkflowUse,
     pub categories: Vec<Category>,
     pub projects: BTreeMap<ProjectId, ProjectEntry>,
+    pub collections: BTreeMap<ProjectId, CollectionEntry>,
     pub fits: BTreeMap<ProjectId, BTreeMap<Version, FitRelease>>,
     pub builds: Vec<Build>,
     pub revoked: Vec<Revocation>,
@@ -28,6 +29,12 @@ pub struct ProjectEntry {
     pub repository_name: RepositoryName,
     pub page: Option<Page>,
     pub releases: BTreeMap<Version, Release>,
+}
+
+pub struct CollectionEntry {
+    pub collection: Collection,
+    /// The one GitHub account that owns every member's repository.
+    pub publisher: String,
 }
 
 pub fn load(checkout: &Path) -> Result<Registry, Vec<String>> {
@@ -93,6 +100,8 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
             "expected a regular public key file",
         );
     }
+    let collections_root = root.join("collections");
+    let collections_dir = top.remove(OsStr::new("collections"));
     let fit_path = root.join("fit");
     let fit_dir = top.remove(OsStr::new("fit"));
     if !generated && fit_dir.is_some() {
@@ -284,6 +293,14 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
             }
         }
     }
+    let collections = match collections_dir {
+        Some(Entry::Directory) => read_collections(&mut tree, &collections_root, &projects),
+        Some(Entry::File) => {
+            tree.problem(&collections_root, "expected a collections directory");
+            BTreeMap::new()
+        }
+        None => BTreeMap::new(),
+    };
     let mut revocations = BTreeSet::new();
     for row in &revoked {
         if !revocations.insert((&row.project, &row.sha256)) {
@@ -330,10 +347,146 @@ fn load_inner(checkout: &Path, generated: bool) -> Result<Registry, Vec<String>>
         release_workflow: release_workflow.uses,
         categories,
         projects,
+        collections,
         fits,
         builds,
         revoked,
     })
+}
+
+fn read_collections(
+    tree: &mut Tree<'_>,
+    root: &Path,
+    projects: &BTreeMap<ProjectId, ProjectEntry>,
+) -> BTreeMap<ProjectId, CollectionEntry> {
+    let mut collections = BTreeMap::new();
+    for (name, entry) in tree.list(root) {
+        let dir = root.join(&name);
+        let Ok(id) = ProjectId::parse(name.to_string_lossy().into_owned()) else {
+            tree.problem(
+                &dir,
+                "expected a directory named by an 8-character base62 collection ID",
+            );
+            continue;
+        };
+        if entry != Entry::Directory {
+            tree.problem(&dir, "expected a collection directory");
+            continue;
+        }
+        let file = dir.join("collection.toml");
+        let mut entries = tree.list(&dir);
+        let collection =
+            tree.toml::<Collection>(&file, entries.remove(OsStr::new("collection.toml")));
+        let icon = dir.join("icon.png");
+        match entries.remove(OsStr::new("icon.png")) {
+            Some(Entry::File) => tree.icon(&icon),
+            _ => tree.problem(&icon, "expected the collection's PNG icon"),
+        }
+        tree.unknown(&dir, entries);
+        let Some(collection) = collection else {
+            continue;
+        };
+        if collection.id != id {
+            tree.problem(&file, "collection ID must match the directory name");
+        }
+        if projects.contains_key(&id) {
+            tree.problem(&file, "collection ID is the ID of a project");
+        }
+        if collection.member.len() < 2 {
+            tree.problem(&file, "a collection needs at least two members");
+        }
+        if !collection.member.iter().any(|member| member.default) {
+            tree.problem(&file, "at least one member must be selected by default");
+        }
+        let mut seen = BTreeSet::new();
+        let mut publisher = None;
+        for member in &collection.member {
+            let project = member.project.as_str();
+            if !seen.insert(&member.project) {
+                tree.problem(&file, format!("duplicate member {project}"));
+            }
+            let Some(entry) = projects.get(&member.project) else {
+                tree.problem(
+                    &file,
+                    format!("member {project} is not a registered project"),
+                );
+                continue;
+            };
+            let account = entry
+                .repository_name
+                .as_str()
+                .split_once('/')
+                .expect("validated when parsed")
+                .0;
+            match publisher {
+                None => publisher = Some(account),
+                // GitHub logins are case-insensitive.
+                Some(first) if !first.eq_ignore_ascii_case(account) => tree.problem(
+                    &file,
+                    format!(
+                        "member {project} is published by {account}, not by {first}: a collection lists one publisher's mods"
+                    ),
+                ),
+                Some(_) => {}
+            }
+        }
+        if let Some(publisher) = publisher {
+            collections.insert(
+                id,
+                CollectionEntry {
+                    collection,
+                    publisher: publisher.to_owned(),
+                },
+            );
+        }
+    }
+    collections
+}
+
+/// Refuses a change to a collection by anyone but an owner of every project it lists, before
+/// and after the change. Ownership is read from `base`, so a pull request cannot grant it to
+/// itself.
+pub fn collection_author(base: &Path, head: &Path, login: &str) -> Result<(), String> {
+    let before = load(base).map_err(|e| e.join("\n"))?;
+    let after = load(head).map_err(|e| e.join("\n"))?;
+    let files = |checkout: &Path, id: &ProjectId| {
+        let dir = checkout.join("registry/collections").join(id.as_str());
+        (
+            std::fs::read(dir.join("collection.toml")).ok(),
+            std::fs::read(dir.join("icon.png")).ok(),
+        )
+    };
+    let ids: BTreeSet<_> = before
+        .collections
+        .keys()
+        .chain(after.collections.keys())
+        .collect();
+    for id in ids {
+        if files(base, id) == files(head, id) {
+            continue;
+        }
+        let members = [&before, &after]
+            .into_iter()
+            .filter_map(|registry| registry.collections.get(id))
+            .flat_map(|entry| &entry.collection.member);
+        for member in members {
+            let owns = before.projects.get(&member.project).is_some_and(|entry| {
+                entry
+                    .project
+                    .owners
+                    .iter()
+                    .any(|owner| owner.as_str().eq_ignore_ascii_case(login))
+            });
+            if !owns {
+                return Err(format!(
+                    "collection {} lists project {}, which {login} does not own on the base commit: only the owner of its mods curates a collection",
+                    id.as_str(),
+                    member.project.as_str()
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn read_releases(

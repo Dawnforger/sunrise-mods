@@ -40,6 +40,18 @@ jobs:
       - name: Check the v2 registry
         working-directory: .
         run: cargo run --locked --manifest-path bot/Cargo.toml -- check .
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - name: Only the owner of its mods changes a collection
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: cargo run --locked --manifest-path bot/Cargo.toml -- collection-author base . "$AUTHOR"
       - name: Exercise signed Pages publication and recovery fixtures
         working-directory: .
         env:
