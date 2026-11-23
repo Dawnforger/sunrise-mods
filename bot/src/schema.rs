@@ -1,6 +1,6 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use sunrise_mod_package::{Manifest, index::stable_tag};
+use sunrise_mod_package::index::stable_tag;
 use sunrise_release_sign::{Channel, is_build};
 use time::{Date, macros::format_description};
 use url::Url;
@@ -54,16 +54,7 @@ text_type!(
 text_type!(
     ModId,
     "expected an in-game ID valid in sunrise-mod.toml",
-    |s: &str| {
-        // `load_before` uses exactly `valid_mod_id`; call it directly when the pin exports it.
-        let manifest = toml::Table::from_iter([
-            ("id".into(), "registry_id_check".into()),
-            ("name".into(), "Registry ID check".into()),
-            ("version".into(), "0.0.0".into()),
-            ("load_before".into(), toml::Value::Array(vec![s.into()])),
-        ]);
-        toml::to_string(&manifest).is_ok_and(|text| Manifest::parse(&text).is_ok())
-    }
+    sunrise_mod_package::manifest::valid_mod_id
 );
 text_type!(
     Sha256,
