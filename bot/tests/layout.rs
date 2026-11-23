@@ -1051,7 +1051,7 @@ fn project_without_a_release_does_not_need_a_page_and_is_not_listed() {
 #[test]
 fn invalid_checkout_produces_no_index() {
     let temp = checkout();
-    fs::remove_file(temp.path().join(RELEASE)).unwrap();
+    fs::remove_file(temp.path().join(ICON)).unwrap();
     let output = run(
         &["index", ".", "--serial", "41", "--out", "output"],
         temp.path(),
