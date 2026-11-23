@@ -84,6 +84,19 @@ class ReleasePRTests(unittest.TestCase):
                 gh.assert_called_once_with("workflow", "run", release.NOT_A_RELEASE, "--repo", REPO,
                                            "--ref", "main", "-f", "pr=12")
 
+    def test_a_burst_of_open_release_prs_lists_the_dispatched_runs_once(self):
+        first, second = pull("release/Ab3dE9xQ/1.0.0", number=10), pull("release/Bb3dE9xQ/1.0.0", number=11)
+        api = Mock(return_value={"object": {"sha": "0" * 40}})
+        runs = Mock(return_value=[{"display_title": f"Registry release PR 10 at {SHA}"}])
+        with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(self.folder / "summary.md")), \
+             patch.object(release, "api", api), patch.object(release, "rows", return_value=[first, second]), \
+             patch.object(release, "git", return_value=SHA.encode()), patch.object(release, "gh") as gh, \
+             patch.object(release, "dispatch_runs", runs):
+            release.publish(self.folder)
+        runs.assert_called_once_with()
+        gh.assert_called_once_with("workflow", "run", release.WORKFLOW, "--repo", REPO,
+                                   "--ref", "main", "-f", "pr=11", "-f", f"head={SHA}")
+
     def report_jobs(self, attempt="1"):
         path = self.folder / "summary.zip"
         with zipfile.ZipFile(path, "w") as archive:

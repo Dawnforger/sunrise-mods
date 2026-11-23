@@ -236,6 +236,7 @@ def publish(generated):
             print("Main changed during observation; no generated files were published.", file=summary)
 
         # A dispatch retry after a failed request, without redispatching a queued or completed run.
+        dispatched = None
         for pr in rows(pulls + "open&base=main"):
             if not own_bot_pr(pr) or pr["base"]["ref"] != "main":
                 continue
@@ -254,7 +255,10 @@ def publish(generated):
             try:
                 require(PR.fullmatch(str(number)) and SHA.fullmatch(sha), "invalid GitHub PR identity")
                 title = f"Registry release PR {number} at {sha}"
-                if not any(run["display_title"] == title for run in dispatch_runs()):
+                if dispatched is None:
+                    # Listed once for every open release PR, not once per PR.
+                    dispatched = {run["display_title"] for run in dispatch_runs()}
+                if title not in dispatched:
                     gh("workflow", "run", WORKFLOW, "--repo", repo, "--ref", "main", "-f", f"pr={number}", "-f", f"head={sha}")
             except (OSError, ValueError) as error:
                 print(f"- Could not dispatch release check for #{safe(number)}: {safe(error)}", file=summary)
