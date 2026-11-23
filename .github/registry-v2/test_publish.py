@@ -142,10 +142,25 @@ class Publish(unittest.TestCase):
             subprocess.run(["tar", "-C", published, "-cf", pages, "pages"], check=True)
         if phase == "verification":
             shutil.copyfile(FIXTURES / "older.minisig", candidate / "index.json.minisig")
-        with self.live_from(published), patch.object(live, "read_deployed") as archived:
+        with self.live_from(published), patch.object(live, "read_deployed", return_value=None):
             self.assertTrue(live.assemble(self.site, candidate, pages, KEY, self.verifier))
-            archived.assert_not_called()
         self.assert_site("older")
+
+    def test_failed_candidate_carries_the_deployed_snapshot_when_public_pages_lags(self):
+        # Pages still serves serial 41 while serial 42 is what the last deployment published.
+        stale = self.snapshot(self.root / "stale", "older")
+        deployed = self.snapshot(self.root / "deployed", "newer")
+
+        def read_deployed(root, key, bot):
+            shutil.copytree(deployed, root)
+            index = live.verify(root, key, bot)
+            live.check_images(root, index)
+            return index
+
+        with self.live_from(stale), patch.object(live, "read_deployed", side_effect=read_deployed):
+            self.assertTrue(live.assemble(self.site, self.root / "none", self.root / "none.tar", KEY, self.verifier))
+            live.guard_deploy(self.site / "v2", KEY, self.verifier, carried=True)
+        self.assert_site("newer")
 
     def deployed_api(self, *, assembly_attempts, keyed=True):
         env = {"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "example/mods"}

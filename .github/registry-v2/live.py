@@ -192,47 +192,61 @@ def check_archive(root, index):
         raise ValueError("Pages archive would omit signed v2 files")
 
 
+def stage(site, work, root, index):
+    with tempfile.TemporaryDirectory(dir=work) as staging:
+        target = Path(staging) / "v2"
+        target.mkdir()
+        for name in (*LIMITS, *index.images):
+            file = target / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root / name, file)
+        check_archive(target.parent, index)
+        shutil.move(target, site / "v2")
+
+
 def assemble(site, candidate, pages, key, bot):
     if not key.is_file():
         return False  # No v2 network, including when the offline build failed.
     with tempfile.TemporaryDirectory(dir=site.parent) as work:
         work = Path(work)
-        for source in ("candidate", "live site", "previous deployment artifact"):
+        try:
+            index = verify(candidate, key, bot)
+            # Extract only the signed paths with the signed-image limits.
+            with tarfile.open(pages, "r:") as archive:
+                for member in archive:
+                    if member.name not in index.images:
+                        continue
+                    limit, _ = index.images[member.name]
+                    file = candidate / member.name
+                    if not member.isfile() or member.size > limit or file.exists():
+                        raise ValueError("invalid or duplicate staged image in candidate archive")
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.extractfile(member) as body, file.open("xb") as output:
+                        shutil.copyfileobj(body, output)
+            check_images(candidate, index)
+            stage(site, work, candidate, index)
+            return False
+        except ERRORS as error:
+            print(f"registry v2: candidate: {reason(error)}")
+        # Carry over the newest authenticated snapshot. Pages can serve an older, validly signed
+        # copy for a while after a deployment, so the live site alone does not say what is deployed:
+        # read the last deployment's stored snapshot too and take the higher serial.
+        found = []
+        for source, read in (("live site", lambda root: read_live(root, key, bot, with_images=True)),
+                             ("previous deployment artifact", lambda root: read_deployed(root, key, bot))):
+            root = work / source.replace(" ", "-")
             try:
-                if source == "candidate":
-                    index = verify(candidate, key, bot)
-                    root = candidate
-                    # Extract only the signed paths with the signed-image limits.
-                    with tarfile.open(pages, "r:") as archive:
-                        for member in archive:
-                            if member.name not in index.images:
-                                continue
-                            limit, _ = index.images[member.name]
-                            file = root / member.name
-                            if not member.isfile() or member.size > limit or file.exists():
-                                raise ValueError("invalid or duplicate staged image in candidate archive")
-                            file.parent.mkdir(parents=True, exist_ok=True)
-                            with archive.extractfile(member) as body, file.open("xb") as output:
-                                shutil.copyfileobj(body, output)
-                    check_images(root, index)
-                elif source == "live site":
-                    root = work / "live"
-                    index = read_live(root, key, bot, with_images=True)
-                else:
-                    root = work / "deployed"
-                    index = read_deployed(root, key, bot)
+                index = read(root)
                 if index is None:
                     raise ValueError("no signed v2 snapshot")
-                with tempfile.TemporaryDirectory(dir=work) as staging:
-                    target = Path(staging) / "v2"
-                    target.mkdir()
-                    for name in (*LIMITS, *index.images):
-                        file = target / name
-                        file.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(root / name, file)
-                    check_archive(target.parent, index)
-                    shutil.move(target, site / "v2")
-                return source != "candidate"
+                found.append((index.serial, source, root, index))
+            except ERRORS as error:
+                print(f"registry v2: {source}: {reason(error)}")
+        for _, source, root, index in sorted(found, key=lambda row: row[0], reverse=True):
+            try:
+                stage(site, work, root, index)
+                print(f"registry v2: carried over serial {index.serial} from the {source}")
+                return True
             except ERRORS as error:
                 print(f"registry v2: {source}: {reason(error)}")
     raise ValueError("NO_AUTHENTICATED_V2_SNAPSHOT: preserving the existing Pages site without deploying")
