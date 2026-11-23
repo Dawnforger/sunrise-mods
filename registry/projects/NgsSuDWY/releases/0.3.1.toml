@@ -1,0 +1,18 @@
+version = "0.3.1"
+tag = "v0.3.1"
+published = "2026-11-23T07:20:25Z"
+sunrise = "nightly-2026-11-20-9425651"
+workflow = "sunrise-org/sunrise-mods/.github/workflows/release.yml@refs/tags/release-v1"
+dependencies = []
+
+[file]
+url = "https://github.com/arismoko/yungs_better_desert_temples/releases/download/v0.3.1/betterdeserttemples-0.3.1.smod"
+size = 655373
+sha256 = "ac60b7c112c713dad04cdfd7f92261c4cd95c9787525b89195906f4762c01c4b"
+attestation = "https://github.com/arismoko/yungs_better_desert_temples/releases/download/v0.3.1/betterdeserttemples-0.3.1.smod.sigstore.json"
+
+[page]
+url = "https://github.com/arismoko/yungs_better_desert_temples/releases/download/v0.3.1/betterdeserttemples-0.3.1.page.tar"
+size = 1678848
+sha256 = "9b8a83aa6a9de19a415ff08cdf2f021dc000c2d810b993ff82283d854ca73f0c"
+attestation = "https://github.com/arismoko/yungs_better_desert_temples/releases/download/v0.3.1/betterdeserttemples-0.3.1.page.tar.sigstore.json"
