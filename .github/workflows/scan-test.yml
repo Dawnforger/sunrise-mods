@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [clean, git-dependency, malicious-dependency, stale-lock]
+        fixture: [clean, git-dependency, malicious-dependency, stale-lock, missing-target]
     uses: ./.github/workflows/scan.yml
     with:
       source-path: scanner/tests/${{ matrix.fixture }}

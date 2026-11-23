@@ -1,0 +1,11 @@
+[package]
+name = "scanner-fixture"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/absent.rs"
+
+[[bin]]
+name = "outside"
+path = "../outside.rs"

@@ -19,4 +19,4 @@ python3 -I scanner/scan.py scanner/tests/flags --previous scanner/tests/prior \
   --output target/scanner/summary.md
 ```
 
-The runner test checks summary truncation and calls the reusable workflow with clean, flagged, git dependency, RustSec malware and stale-lock fixtures; the expected hard failures and incomplete scan are asserted only in that test caller.
+The runner test checks summary truncation and calls the reusable workflow with clean, flagged, git dependency, RustSec malware, stale-lock and missing-target fixtures; the expected hard failures and incomplete scan are asserted only in that test caller.

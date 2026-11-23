@@ -62,6 +62,13 @@ def check_fixture(case, code, report):
         assert "### Hard failures\nNone.\n\n### Scan incomplete\n- **scan-incomplete**:" in report
         assert "Cargo&#46;lock does not match the manifests" in report
         return
+    elif case == "missing-target":
+        assert code == 2, f"Expected an incomplete scan (got exit {code})"
+        assert "### Scan incomplete\n- **scan-incomplete**:" in report
+        literal = html.unescape(report)
+        for target in ("src/absent.rs", "outside.rs"):
+            assert target in literal, target
+        return
     else:
         expected = {"git-dependency": "non-crates-io", "malicious-dependency": "rustsec-malicious"}[case]
         assert code == 1 and f"**{expected}**" in report, f"Expected {expected} (got exit {code})"

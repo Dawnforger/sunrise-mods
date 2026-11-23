@@ -324,6 +324,10 @@ def scan(source, prior, work, failures, flags, note):
     packages = lock_packages(files)
     source_policy(source, manifests, packages, failures)
     scripts, macros, targets = build_targets(source, files, manifests)
+    # A declared entry point that is absent or outside the release was not read by anyone.
+    unread = sorted(target.name if target.is_absolute() else str(target) for target in targets - files.keys())
+    if unread:
+        raise ScanError("A manifest declares Rust targets the release does not contain: " + ", ".join(unread))
     semgrep(files, targets, work, flags)
     for path in sorted(scripts):
         flags["Build scripts"].append((f"{path}:1", "Review the code Cargo runs before compiling the mod."))
