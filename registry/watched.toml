@@ -180,14 +180,6 @@ path = "yungsbridges"
 project = "aAKT2W7M"
 
 [[repository]]
-id = 1468300668
-name = "arismoko/earshot"
-
-[[repository.package]]
-path = "."
-project = "fL0hvMz3"
-
-[[repository]]
 id = 1468300570
 name = "arismoko/mcwfences"
 
