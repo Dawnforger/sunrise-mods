@@ -1,0 +1,20 @@
+id = "AMK9f9Q0"
+name = "Macaw's"
+summary = "Macaw's doors, fences and walls, trapdoors, and paths and pavings, for Sunrise."
+description = """
+Macaw's mods add hundreds of building blocks in every wood and many stones: doors, garage doors and portcullises; fences, walls, hedges and gates; trapdoors; and paths, pavings, slabs and stairs.
+
+These are ports of Sketch Macaw and Peachy Macaw's mods to Sunrise. Each is its own project with its own page; pick the ones you want.
+"""
+
+[[member]]
+project = "woOSyWLz"  # Macaw's Doors
+
+[[member]]
+project = "4Vdx2NAo"  # Macaw's Fences and Walls
+
+[[member]]
+project = "cqXLbgxI"  # Macaw's Trapdoors
+
+[[member]]
+project = "bSETUGA3"  # Macaw's Paths and Pavings
